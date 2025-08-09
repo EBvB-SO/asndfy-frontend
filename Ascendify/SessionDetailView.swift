@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 // MARK: - Tab Selection
 enum SessionDetailTab: String, CaseIterable {
@@ -371,7 +372,7 @@ struct SessionDetailView: View {
                 }
             }
         }
-        .onReceive(SessionTrackingManager.shared.$sessionTracking) { updated in
+        .onReceive(trackingManager.$sessionTracking) { updated in
             if let sessions = updated[sessionTracking.planId],
                let new = sessions.first(where: { $0.id == sessionTracking.id }) {
                 notes = new.notes
@@ -686,6 +687,32 @@ struct SessionDetailView: View {
             })
         }
     }
+    
+    /// Update the date on all exercise entries that belong to the current session.
+    /// This ensures history entries reflect the new session completion date.
+    private func updateExerciseEntryDates(to newDate: Date) {
+        for sessionEx in allExercises {
+            // Get every history entry for this exercise title in this plan
+            let histories = trackingManager.getHistoryForExerciseTitle(
+                exerciseTitle: sessionEx.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines),
+                planId: sessionTracking.planId
+            )
+            for entry in histories {
+                // Only change entries that belong to this session
+                if entry.sessionId == sessionTracking.id {
+                    let updatedEntry = ExerciseTracking(
+                        preservingId: entry.id,
+                        planId: entry.planId,
+                        sessionId: entry.sessionId,
+                        exerciseId: entry.exerciseId,
+                        date: newDate,
+                        notes: entry.notes
+                    )
+                    trackingManager.updateExerciseEntry(updatedEntry)
+                }
+            }
+        }
+    }
 
     // MARK: - Actions (Preserved from Original)
     private func toggleExercise(_ sessionEx: SessionExercise) {
@@ -764,26 +791,29 @@ struct SessionDetailView: View {
     private func saveSessionChanges(notes: String, date: Date, completed: Bool) {
         self.notes = notes
         self.isCompleted = completed
-        
+
+        // 1) Mark session completed/incompleted with the new note
         trackingManager.markSessionCompleted(
             planId: sessionTracking.planId,
             sessionId: sessionTracking.id,
             completed: completed,
             notes: notes
         )
-        
-        // Update completion date if provided and different
-        if completed, let currentDate = sessionTracking.completionDate, currentDate != date {
-            // Update the completion date - would need to extend the tracking manager
-            // For now, just update notes to include the date info
-            let dateNote = "Completed on \(date.formatted(date: .abbreviated, time: .shortened))"
-            let combinedNotes = notes.isEmpty ? dateNote : "\(notes)\n\n\(dateNote)"
-            
-            trackingManager.updateSessionNotes(
-                planId: sessionTracking.planId,
-                sessionId: sessionTracking.id,
-                notes: combinedNotes
-            )
+
+        // 2) If the user picked a different date than the current completionDate,
+        //    update both session tracking and all exercise entries.
+        if completed {
+            if let currentDate = sessionTracking.completionDate, currentDate != date {
+                // update the session’s completion date in your model if you have an API for that
+                trackingManager.updateSessionCompletionDate(
+                    planId: sessionTracking.planId,
+                    sessionId: sessionTracking.id,
+                    date: date
+                )
+                // update every exercise entry in this session to the new date
+                updateExerciseEntryDates(to: date)
+                Task { await refreshData() }
+            }
         }
     }
 

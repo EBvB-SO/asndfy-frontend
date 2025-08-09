@@ -502,6 +502,7 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     // MARK: - Session Management
+    
     func markSessionCompleted(planId: String, sessionId: UUID, completed: Bool, notes: String) {
         print("📝 Marking session \(sessionId) as completed: \(completed)")
         
@@ -532,6 +533,36 @@ final class SessionTrackingManager: ObservableObject {
             notes: notes,
             completionDate: completed ? Date() : nil
         )
+    }
+
+    func updateSessionCompletionDate(planId: String, sessionId: UUID, date: Date) {
+        DispatchQueue.main.async {
+            guard var sessions = self.sessionTracking[planId],
+                  let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
+                print("❌ Session not found for date update: \(sessionId)")
+                return
+            }
+
+            // Update local model
+            sessions[index].completionDate = date
+            sessions[index].updatedAt = Date()
+            let isCompleted = sessions[index].isCompleted
+            let notes = sessions[index].notes
+
+            self.sessionTracking[planId] = sessions
+            self.saveSessionTracking()
+            self.objectWillChange.send()
+            print("✅ Updated session completion date → \(date) for \(sessionId)")
+
+            // Queue a session update so the server reflects the new date
+            self.queuePendingSessionUpdate(
+                planId: planId,
+                sessionId: sessionId,
+                completed: isCompleted,
+                notes: notes,
+                completionDate: date
+            )
+        }
     }
 
     func updateSessionNotes(planId: String, sessionId: UUID, notes: String) {
