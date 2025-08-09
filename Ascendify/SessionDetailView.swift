@@ -295,6 +295,16 @@ struct SessionDetailView: View {
     private var mainWorkoutExercises: [SessionExercise] {
         allExercises.filter { $0.exercise.type != "warm-up" && $0.exercise.type != "cool-down" }
     }
+    
+    // Gathers all history entries for a single exercise title (across sessions)
+    private func combinedHistory(for sessionEx: SessionExercise) -> [ExerciseTracking] {
+        let exactTitle = sessionEx.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entries = trackingManager.getHistoryForExerciseTitle(
+            exerciseTitle: exactTitle,
+            planId: sessionTracking.planId
+        )
+        return entries.sorted { $0.date > $1.date }
+    }
 
     // MARK: - Body
     var body: some View {
@@ -467,65 +477,72 @@ struct SessionDetailView: View {
 
     // MARK: - History View (Enhanced)
     private func historyView() -> some View {
-        // Group exercise histories by date so the session date appears only once.
-        let grouped = groupedHistoryEntries()
-        return List {
-            ForEach(grouped, id: \.date) { group in
-                Section(header: Text(
-                    DateFormatter.localizedString(
-                        from: group.date,
-                        dateStyle: .medium,
-                        timeStyle: .none)
-                )) {
-                    ForEach(group.entries) { item in
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                // Show the exercise name
-                                Text(item.exerciseTitle)
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                                // Show cleaned notes or a placeholder
-                                if !item.notes.isEmpty {
-                                    Text(item.notes)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(3)
-                                } else {
-                                    Text("Completed - no notes")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
-                                        .italic()
-                                }
-                            }
-                            Spacer()
-                            // Indicate sync status
-                            if item.entry.isSynced {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.green)
-                                    .font(.caption)
-                            } else if item.entry.syncError != nil {
-                                Image(systemName: "exclamationmark.circle.fill")
-                                    .foregroundColor(.red)
-                                    .font(.caption)
-                            } else {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .foregroundColor(.orange)
-                                    .font(.caption)
-                            }
-                            // Edit button for this exercise entry
-                            Button("Edit") {
-                                selectedEntryToEdit = item.entry
-                                showingExerciseEntryEdit = true
-                            }
-                            .font(.caption)
-                            .foregroundColor(.blue)
+        List {
+            ForEach(mainWorkoutExercises) { sessionEx in
+                let historyEntries = combinedHistory(for: sessionEx)
 
+                Section(header: Text(sessionEx.displayTitle)) {
+                    if historyEntries.isEmpty {
+                        // Show a placeholder if no history
+                        Text("No history yet")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .italic()
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(historyEntries) { entry in
+                            HStack(alignment: .top) {
+                                // Left-hand side: date and notes
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(DateFormatter.localizedString(
+                                        from: entry.date,
+                                        dateStyle: .medium,
+                                        timeStyle: .none))
+                                        .font(.subheadline)
+
+                                    let cleanedNotes = trackingManager.cleanNotesForDisplay(entry.notes)
+                                    if !cleanedNotes.isEmpty {
+                                        Text(cleanedNotes)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .lineLimit(3)
+                                    } else {
+                                        Text("Completed - no notes")
+                                            .font(.caption)
+                                            .foregroundColor(.gray)
+                                            .italic()
+                                    }
+                                }
+                                Spacer()
+                                // Right-hand side: sync status and Edit button
+                                if entry.isSynced {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                        .font(.caption)
+                                } else if entry.syncError != nil {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .foregroundColor(.red)
+                                        .font(.caption)
+                                } else {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .foregroundColor(.orange)
+                                        .font(.caption)
+                                }
+
+                                Button("Edit") {
+                                    selectedEntryToEdit = entry
+                                    showingExerciseEntryEdit = true
+                                }
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                            }
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }
-            // Keep the info footnote
+
+            // Keep the info footnote at the bottom
             Section {
                 HStack {
                     Image(systemName: "info.circle")
@@ -538,6 +555,7 @@ struct SessionDetailView: View {
         }
         .listStyle(InsetGroupedListStyle())
     }
+
 
     
     // MARK: - History Grouping Helpers
