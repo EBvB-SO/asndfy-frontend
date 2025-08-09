@@ -20,6 +20,7 @@ struct SessionEditSheet: View {
     @State private var editedNotes: String
     @State private var editedDate: Date
     @State private var isCompleted: Bool
+    
     @Environment(\.dismiss) private var dismiss
     
     let onSave: (String, Date, Bool) -> Void
@@ -56,7 +57,7 @@ struct SessionEditSheet: View {
                         DatePicker(
                             "Completion Date",
                             selection: $editedDate,
-                            displayedComponents: [.date, .hourAndMinute]
+                            displayedComponents: [.date]
                         )
                     }
                 }
@@ -82,158 +83,24 @@ struct SessionEditSheet: View {
     }
 }
 
-// MARK: - Exercise Edit Sheet
-struct ExerciseHistoryEditSheet: View {
-    let exerciseTitle: String
-    let historyEntries: [ExerciseTracking]
-    @ObservedObject private var trackingManager = SessionTrackingManager.shared
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationView {
-            List {
-                ForEach(historyEntries.sorted { $0.date > $1.date }, id: \.id) { entry in
-                    ExerciseHistoryEditRow(
-                        entry: entry,
-                        onUpdate: { updatedEntry in
-                            // Update the entry in the tracking manager
-                            updateExerciseEntry(updatedEntry)
-                        },
-                        onDelete: { entryToDelete in
-                            deleteExerciseEntry(entryToDelete)
-                        }
-                    )
-                }
-            }
-            .navigationTitle("Edit \(exerciseTitle)")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(trailing: Button("Done") {
-                dismiss()
-            })
-        }
-    }
-    
-    private func updateExerciseEntry(_ updatedEntry: ExerciseTracking) {
-        // Call tracking manager method to update the entry
-        trackingManager.updateExerciseEntry(updatedEntry)
-    }
-    
-    private func extractExerciseTitleFromNotes(_ notes: String) -> String {
-        if let range = notes.range(of: #"\[EXERCISE:([^\]]+)\]"#, options: .regularExpression) {
-            let match = String(notes[range])
-            return match
-                .replacingOccurrences(of: "[EXERCISE:", with: "")
-                .replacingOccurrences(of: "]", with: "")
-        }
-        return "Unknown Exercise"
-    }
-    
-    private func deleteExerciseEntry(_ entry: ExerciseTracking) {
-        // Call tracking manager method to delete the entry
-        trackingManager.deleteExerciseEntry(entry)
-    }
-    
-    private func deleteFromServer(_ entry: ExerciseTracking) async {
-        // Implementation would call the delete API endpoint
-        print("Deleting exercise from server: \(entry.id)")
-    }
-}
-
-struct ExerciseHistoryEditRow: View {
-    @State private var entry: ExerciseTracking
-    @State private var showingEditSheet = false
-    
-    let onUpdate: (ExerciseTracking) -> Void
-    let onDelete: (ExerciseTracking) -> Void
-    
-    init(entry: ExerciseTracking, onUpdate: @escaping (ExerciseTracking) -> Void, onDelete: @escaping (ExerciseTracking) -> Void) {
-        _entry = State(initialValue: entry)
-        self.onUpdate = onUpdate
-        self.onDelete = onDelete
-    }
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(entry.date, style: .date)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    
-                    let cleanedNotes = SessionTrackingManager.shared.cleanNotesForDisplay(entry.notes)
-                    if !cleanedNotes.isEmpty {
-                        Text(cleanedNotes)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(2)
-                    } else {
-                        Text("No notes")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                            .italic()
-                    }
-                }
-                
-                Spacer()
-                
-                HStack(spacing: 12) {
-                    if entry.isSynced {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
-                    } else if entry.syncError != nil {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .font(.caption)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .foregroundColor(.orange)
-                            .font(.caption)
-                    }
-                    
-                    Button("Edit") {
-                        showingEditSheet = true
-                    }
-                    .font(.caption)
-                    .foregroundColor(.blue)
-                }
-            }
-        }
-        .sheet(isPresented: $showingEditSheet) {
-            ExerciseEntryEditSheet(
-                entry: entry,
-                onSave: { updatedEntry in
-                    entry = updatedEntry
-                    onUpdate(updatedEntry)
-                }
-            )
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button("Delete", role: .destructive) {
-                onDelete(entry)
-            }
-        }
-    }
-}
-
+// MARK: - Exercise Edit Sheet (direct edit of a single entry; date is read-only)
 struct ExerciseEntryEditSheet: View {
-    @State private var editedDate: Date
-    @State private var editedNotes: String
     @Environment(\.dismiss) private var dismiss
-    
+
+    // Notes only are editable
+    @State private var editedNotes: String
+
     private let entry: ExerciseTracking
     private let onSave: (ExerciseTracking) -> Void
-    
+
     init(entry: ExerciseTracking, onSave: @escaping (ExerciseTracking) -> Void) {
         self.entry = entry
         self.onSave = onSave
-        _editedDate = State(initialValue: entry.date)
-        
-        // Extract the actual notes content, removing the system tags
+        // Extract user-visible notes (strip tags)
         let cleanedNotes = SessionTrackingManager.shared.cleanNotesForDisplay(entry.notes)
         _editedNotes = State(initialValue: cleanedNotes)
     }
-    
+
     var body: some View {
         NavigationView {
             Form {
@@ -244,25 +111,24 @@ struct ExerciseEntryEditSheet: View {
                         Text(extractExerciseTitle())
                             .foregroundColor(.secondary)
                     }
-                    
-                    DatePicker(
-                        "Date",
-                        selection: $editedDate,
-                        displayedComponents: [.date, .hourAndMinute]
-                    )
+                    HStack {
+                        Text("Date:")
+                        Spacer()
+                        // Read-only: keep the original date, no time editing
+                        Text(entry.date.formatted(date: .abbreviated, time: .omitted))
+                            .foregroundColor(.secondary)
+                    }
                 }
-                
+
                 Section("Notes") {
                     TextEditor(text: $editedNotes)
-                        .frame(minHeight: 100)
+                        .frame(minHeight: 120)
                 }
             }
             .navigationTitle("Edit Exercise Entry")
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(
-                leading: Button("Cancel") {
-                    dismiss()
-                },
+                leading: Button("Cancel") { dismiss() },
                 trailing: Button("Save") {
                     saveChanges()
                     dismiss()
@@ -271,10 +137,11 @@ struct ExerciseEntryEditSheet: View {
             )
         }
     }
-    
+
+    // MARK: helpers
     private func extractExerciseTitle() -> String {
-        // Extract title from [EXERCISE:title] format
-        if let range = entry.notes.range(of: #"\[EXERCISE:([^\]]+)\]"#, options: .regularExpression) {
+        if let range = entry.notes.range(of: #"\[EXERCISE:([^\]]+)\]"#,
+                                         options: .regularExpression) {
             let match = String(entry.notes[range])
             return match
                 .replacingOccurrences(of: "[EXERCISE:", with: "")
@@ -282,27 +149,24 @@ struct ExerciseEntryEditSheet: View {
         }
         return "Unknown Exercise"
     }
-    
+
     private func saveChanges() {
-        // Reconstruct the notes with system tags
+        // Rebuild the notes with the system tags intact
         let exerciseTitle = extractExerciseTitle()
         let keyMatch = entry.notes.range(of: #"\[KEY:([^\]]+)\]"#, options: .regularExpression)
         let keyTag = keyMatch != nil ? String(entry.notes[keyMatch!]) : ""
 
-        let updatedNotes: String
-        if editedNotes.isEmpty {
-            updatedNotes = "[EXERCISE:\(exerciseTitle)]\(keyTag) Completed"
-        } else {
-            updatedNotes = "[EXERCISE:\(exerciseTitle)]\(keyTag) \(editedNotes)"
-        }
+        let updatedNotes: String = editedNotes.isEmpty
+            ? "[EXERCISE:\(exerciseTitle)]\(keyTag) Completed"
+            : "[EXERCISE:\(exerciseTitle)]\(keyTag) \(editedNotes)"
 
-        // Preserve the original ID so the backend can find the record
+        // Keep the original date (session date is edited elsewhere)
         let updatedEntry = ExerciseTracking(
             preservingId: entry.id,
             planId: entry.planId,
             sessionId: entry.sessionId,
             exerciseId: entry.exerciseId,
-            date: editedDate,
+            date: entry.date,
             notes: updatedNotes
         )
 
@@ -324,8 +188,8 @@ struct SessionDetailView: View {
     
     // Edit states
     @State private var showingSessionEdit = false
-    @State private var showingExerciseHistoryEdit = false
-    @State private var selectedExerciseForEdit: String = ""
+    @State private var showingExerciseEntryEdit = false
+    @State private var selectedEntryToEdit: ExerciseTracking? = nil
 
     @State private var showExerciseNote: Bool = false
     @State private var selectedExerciseId: UUID? = nil
@@ -432,17 +296,6 @@ struct SessionDetailView: View {
         allExercises.filter { $0.exercise.type != "warm-up" && $0.exercise.type != "cool-down" }
     }
 
-    private func combinedHistory(for sessionEx: SessionExercise) -> [ExerciseTracking] {
-        let exactTitle = sessionEx.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        let entries = trackingManager.getHistoryForExerciseTitle(
-            exerciseTitle: exactTitle,
-            planId: sessionTracking.planId
-        )
-        
-        return entries.sorted { $0.date > $1.date }
-    }
-
     // MARK: - Body
     var body: some View {
         NavigationView {
@@ -488,15 +341,16 @@ struct SessionDetailView: View {
                     }
                 )
             }
-            .sheet(isPresented: $showingExerciseHistoryEdit) {
-                if !selectedExerciseForEdit.isEmpty {
-                    ExerciseHistoryEditSheet(
-                        exerciseTitle: selectedExerciseForEdit,
-                        historyEntries: trackingManager.getHistoryForExerciseTitle(
-                            exerciseTitle: selectedExerciseForEdit,
-                            planId: sessionTracking.planId
-                        )
-                    )
+            .sheet(isPresented: $showingExerciseEntryEdit) {
+                if let entry = selectedEntryToEdit {
+                    ExerciseEntryEditSheet(entry: entry) { updatedEntry in
+                        // Update the entry in the tracking manager
+                        trackingManager.updateExerciseEntry(updatedEntry)
+                        // Tell SwiftUI to refresh the view
+                        DispatchQueue.main.async {
+                            trackingManager.objectWillChange.send()
+                        }
+                    }
                 }
             }
             .refreshable { await refreshData() }
@@ -613,26 +467,65 @@ struct SessionDetailView: View {
 
     // MARK: - History View (Enhanced)
     private func historyView() -> some View {
-        List {
-            ForEach(mainWorkoutExercises) { sessionEx in
-                Section(header: HStack {
-                    Text(sessionEx.displayTitle)
-                    Spacer()
-                    Button("Edit History") {
-                        selectedExerciseForEdit = sessionEx.displayTitle
-                        showingExerciseHistoryEdit = true
+        // Group exercise histories by date so the session date appears only once.
+        let grouped = groupedHistoryEntries()
+        return List {
+            ForEach(grouped, id: \.date) { group in
+                Section(header: Text(
+                    DateFormatter.localizedString(
+                        from: group.date,
+                        dateStyle: .medium,
+                        timeStyle: .none)
+                )) {
+                    ForEach(group.entries) { item in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                // Show the exercise name
+                                Text(item.exerciseTitle)
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                                // Show cleaned notes or a placeholder
+                                if !item.notes.isEmpty {
+                                    Text(item.notes)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(3)
+                                } else {
+                                    Text("Completed - no notes")
+                                        .font(.caption)
+                                        .foregroundColor(.gray)
+                                        .italic()
+                                }
+                            }
+                            Spacer()
+                            // Indicate sync status
+                            if item.entry.isSynced {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                            } else if item.entry.syncError != nil {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundColor(.red)
+                                    .font(.caption)
+                            } else {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .foregroundColor(.orange)
+                                    .font(.caption)
+                            }
+                            // Edit button for this exercise entry
+                            Button("Edit") {
+                                selectedEntryToEdit = item.entry
+                                showingExerciseEntryEdit = true
+                            }
+                            .font(.caption)
+                            .foregroundColor(.blue)
+
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .font(.caption)
-                    .foregroundColor(.blue)
-                }) {
-                    HistoryRowsView(
-                        sessionEx: sessionEx,
-                        combinedHistory: combinedHistory(for: sessionEx),
-                        trackingManager: trackingManager
-                    )
                 }
             }
-            
+            // Keep the info footnote
             Section {
                 HStack {
                     Image(systemName: "info.circle")
@@ -645,6 +538,53 @@ struct SessionDetailView: View {
         }
         .listStyle(InsetGroupedListStyle())
     }
+
+    
+    // MARK: - History Grouping Helpers
+    /// A helper model used to display history entries grouped by session date.
+    private struct HistoryDisplayEntry: Identifiable {
+        let id = UUID()
+        let date: Date
+        let exerciseTitle: String
+        let entry: ExerciseTracking
+        let notes: String
+    }
+
+    /// Groups all exercise history entries by the start of their day so that the date is only shown once per session.
+    /// Returns an array of tuples (date, entries) sorted by descending date.
+    private func groupedHistoryEntries() -> [(date: Date, entries: [HistoryDisplayEntry])] {
+        let calendar = Calendar.current
+        var flatEntries: [HistoryDisplayEntry] = []
+        // Collect histories from all main workout exercises
+        for sessionEx in mainWorkoutExercises {
+            let exactTitle = sessionEx.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            let histories = trackingManager.getHistoryForExerciseTitle(
+                exerciseTitle: exactTitle,
+                planId: sessionTracking.planId
+            )
+            for entry in histories {
+                let cleanedNotes = trackingManager.cleanNotesForDisplay(entry.notes)
+                let normalizedDate = calendar.startOfDay(for: entry.date)
+                flatEntries.append(
+                    HistoryDisplayEntry(
+                        date: normalizedDate,
+                        exerciseTitle: sessionEx.displayTitle,
+                        entry: entry,
+                        notes: cleanedNotes
+                    )
+                )
+            }
+        }
+        // Group entries by date
+        let grouped = Dictionary(grouping: flatEntries, by: { $0.date })
+        // Sort dates descending
+        let sortedDates = grouped.keys.sorted(by: >)
+        return sortedDates.map { date in
+            let items = grouped[date]!.sorted { $0.entry.date > $1.entry.date }
+            return (date: date, entries: items)
+        }
+    }
+
 
     // MARK: - Footer & Sync
     private var footer: some View {
@@ -872,72 +812,6 @@ struct SessionDetailView: View {
             completed: isCompleted,
             notes: notes
         )
-    }
-}
-
-// MARK: - History Rows View (Unchanged from Original)
-struct HistoryRowsView: View {
-    let sessionEx: SessionDetailView.SessionExercise
-    let combinedHistory: [ExerciseTracking]
-    let trackingManager: SessionTrackingManager
-
-    var body: some View {
-        if !combinedHistory.isEmpty {
-            ForEach(combinedHistory) { entry in
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(DateFormatter.localizedString(
-                            from: entry.date,
-                            dateStyle: .medium,
-                            timeStyle: .none)
-                        )
-                        .font(.subheadline)
-                        .foregroundColor(.primary)
-
-                        let cleanedNotes = trackingManager.cleanNotesForDisplay(entry.notes)
-                        if !cleanedNotes.isEmpty {
-                            Text(cleanedNotes)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(3)
-                        } else {
-                            Text("Completed - no notes")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                                .italic()
-                        }
-                    }
-                    Spacer()
-                    if entry.isSynced {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.caption)
-                    } else if entry.syncError != nil {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .foregroundColor(.red)
-                            .font(.caption)
-                    } else {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .foregroundColor(.orange)
-                            .font(.caption)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("No history yet")
-                    .font(.caption)
-                    .italic()
-                    .foregroundColor(.gray)
-    #if DEBUG
-                Text("Searched for: '\(sessionEx.displayTitle)' and '\(sessionEx.originalTitle)'")
-                    .font(.caption2)
-                    .foregroundColor(.orange)
-    #endif
-            }
-            .padding(.vertical, 8)
-        }
     }
 }
 
