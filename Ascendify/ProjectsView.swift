@@ -250,8 +250,11 @@ struct ProjectRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(project.routeName)
+                // Route name with better visibility and debugging
+                Text(project.routeName.isEmpty ? "Unnamed Route" : project.routeName)
                     .font(.headline)
+                    .foregroundColor(.primary) // Ensure it's visible in all modes
+                    .lineLimit(1)
                 
                 Spacer()
                 
@@ -339,5 +342,12 @@ struct ProjectRowView: View {
                 .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
         )
         .contentShape(Rectangle()) // Make the entire cell tappable
+        .onAppear {
+            // Debug print to verify route name data
+            print("📝 ProjectRow - Route: '\(project.routeName)', Grade: '\(project.grade)', Crag: '\(project.crag)'")
+            if project.routeName.isEmpty {
+                print("⚠️ Warning: Empty route name for project ID: \(project.id)")
+            }
+        }
     }
 }
