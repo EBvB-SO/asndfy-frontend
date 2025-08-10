@@ -700,6 +700,9 @@ struct DayDetailView: View {
     @StateObject private var projectsManager = ProjectsManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingAddNote = false
+    @State private var selectedTrainingSession: SessionTracking? = nil
+    @State private var selectedPlanId: String? = nil
+    @State private var showingSessionNotes = false
     
     private var dateFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -737,9 +740,18 @@ struct DayDetailView: View {
             .background(Color(.systemGray6))
         }
         .navigationBarHidden(true)
-        .sheet(isPresented: $showingAddNote) {
+        .sheet(isPresented: $showingAddNote, onDismiss: {}) {
+            // content:
             AddNoteView(date: date) {
                 diaryManager.objectWillChange.send()
+            }
+        }
+        .sheet(isPresented: $showingSessionNotes) {
+            if let session = selectedTrainingSession, let plan = selectedPlanId {
+                SessionExerciseNotesView(session: session, planId: plan)
+            } else {
+                // (Optional) fallback so the content always returns a View
+                Text("No session selected")
             }
         }
     }
@@ -899,7 +911,14 @@ struct DayDetailView: View {
         case .training(let sessionId, let planId):
             if let sessions = sessionManager.sessionTracking[planId],
                let session = sessions.first(where: { $0.id == sessionId }) {
-                TrainingEntryCard(session: session, planId: planId)
+                Button(action: {
+                    selectedTrainingSession = session
+                    selectedPlanId = planId
+                    showingSessionNotes = true
+                }) {
+                    TrainingEntryCard(session: session, planId: planId)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
             
         case .projectLog(let logEntry, let projectName):
