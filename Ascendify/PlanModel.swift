@@ -10,7 +10,7 @@ import Foundation
 /// A model matching the server's training plan response format
 struct ServerPlanModel: Codable {
     let id: String
-    let user_id: Int
+    let user_id: String
     let route_name: String
     let grade: String
     let route_overview: String
