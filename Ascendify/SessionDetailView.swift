@@ -792,7 +792,7 @@ struct SessionDetailView: View {
         self.notes = notes
         self.isCompleted = completed
 
-        // 1) Mark session completed/incompleted with the new note
+        // 1) Update complete flag + notes (this sets completionDate = now if completed)
         trackingManager.markSessionCompleted(
             planId: sessionTracking.planId,
             sessionId: sessionTracking.id,
@@ -800,20 +800,15 @@ struct SessionDetailView: View {
             notes: notes
         )
 
-        // 2) If the user picked a different date than the current completionDate,
-        //    update both session tracking and all exercise entries.
+        // 2) If completed, ALWAYS override with the user-chosen date
         if completed {
-            if let currentDate = sessionTracking.completionDate, currentDate != date {
-                // update the session’s completion date in your model if you have an API for that
-                trackingManager.updateSessionCompletionDate(
-                    planId: sessionTracking.planId,
-                    sessionId: sessionTracking.id,
-                    date: date
-                )
-                // update every exercise entry in this session to the new date
-                updateExerciseEntryDates(to: date)
-                Task { await refreshData() }
-            }
+            trackingManager.updateSessionCompletionDate(
+                planId: sessionTracking.planId,
+                sessionId: sessionTracking.id,
+                date: date
+            )
+            updateExerciseEntryDates(to: date)
+            // ✅ Do NOT call refresh here; let background sync/auto refresh handle it.
         }
     }
 
