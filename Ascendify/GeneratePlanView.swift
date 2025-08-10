@@ -263,14 +263,23 @@ struct GeneratePlanView: View {
                         previewData: preview,
                         userInputData: payload,
                         onPurchaseComplete: { plan in
-                            // Store the purchased plan
-                            GeneratedPlansManager.shared.savePlan(
-                                routeName: self.routeName,
-                                grade: self.routeGrade,
-                                plan: plan
-                            )
-                            // Close this view and return to main
-                            dismiss()
+                            Task {
+                                do {
+                                    try await GeneratedPlansManager.shared.savePlanToServer(
+                                        routeName: self.routeName,
+                                        grade: self.routeGrade,
+                                        planModel: plan
+                                    )
+                                    GeneratedPlansManager.shared.savePlan(
+                                        routeName: self.routeName,
+                                        grade: self.routeGrade,
+                                        plan: plan
+                                    )
+                                    dismiss()
+                                } catch {
+                                    self.errorMessage = error.localizedDescription
+                                }
+                            }
                         }
                     )
                     .environmentObject(userViewModel)
@@ -555,15 +564,3 @@ struct GeneratePlanView: View {
             }
         }
     }
-    
-    struct GeneratePlanView_Previews: PreviewProvider {
-        static var previews: some View {
-            // Preview with a default UserViewModel to display input fields
-            let userVM = UserViewModel()
-            return NavigationView {
-                GeneratePlanView()
-                    .environmentObject(userVM)
-            }
-        }
-    }
-

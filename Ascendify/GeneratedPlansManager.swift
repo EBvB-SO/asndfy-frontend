@@ -212,6 +212,28 @@ class GeneratedPlansManager: ObservableObject {
         }
     }
     
+    struct ServerSaveRequest: Encodable {
+        let route_name: String
+        let grade: String
+        let route_overview: String?
+        let training_overview: String?
+        let phases: [Phase]
+
+        struct Phase: Encodable {
+            let phase_name: String
+            let description: String
+            let phase_order: Int
+            let sessions: [Session]
+
+            struct Session: Encodable {
+                let day: String
+                let focus: String
+                let details: String
+                let session_order: Int
+            }
+        }
+    }
+    
     /// Check if user has any plans (either local or needs to fetch)
     func checkForPlans() {
         if plans.isEmpty {
@@ -229,5 +251,86 @@ class GeneratedPlansManager: ObservableObject {
     func refreshPlans() async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
         await fetchPlansFromServerAsync(email: email)
+    }
+}
+
+extension GeneratedPlansManager {
+    /// Send a newly generated plan to the backend
+    func savePlanToServer(routeName: String,
+                          grade: String,
+                          planModel: PlanModel) async throws {
+        guard let email = UserViewModel.shared.userProfile?.email else {
+            throw NSError(domain: "GeneratedPlansManager",
+                          code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+        }
+
+        // Convert your PlanModel -> ServerSaveRequest
+        // Server expects: phases[] with (phase_name, description, phase_order, sessions[])
+        // and sessions[] with (day, focus, details, session_order)
+
+        var phasePayloads: [ServerSaveRequest.Phase] = []
+
+        for (wIndex, week) in planModel.weeks.enumerated() {
+
+            var sessionPayloads: [ServerSaveRequest.Phase.Session] = []
+
+            for (sIndex, session) in week.sessions.enumerated() {
+                // Build a human-readable details block from warmup / main / cooldown
+                let warmupLine = session.warmUp.isEmpty ? "" : "Warm-up: " + session.warmUp.joined(separator: ", ")
+                let mainLine   = session.mainWorkout.isEmpty
+                    ? ""
+                    : "Main: " + session.mainWorkout.map { $0.title }.joined(separator: ", ")
+                let cooldownLine = session.coolDown.isEmpty ? "" : "Cool-down: " + session.coolDown.joined(separator: ", ")
+
+                let detailsParts = [warmupLine, mainLine, cooldownLine].filter { !$0.isEmpty }
+                let details = detailsParts.joined(separator: "\n")
+
+                // Focus: use the first main workout title if present, else the session title
+                let focus = session.mainWorkout.first?.title ?? session.sessionTitle
+
+                // Day: we don’t actually have a weekday field; use the sessionTitle
+                let dayText = session.sessionTitle
+
+                sessionPayloads.append(
+                    .init(day: dayText,
+                          focus: focus,
+                          details: details,
+                          session_order: sIndex + 1)
+                )
+            }
+
+            // We don't have a week description field; use the plan's trainingOverview (or blank)
+            let weekDescription = planModel.trainingOverview.isEmpty ? "" : planModel.trainingOverview
+
+            phasePayloads.append(
+                .init(phase_name: week.title,
+                      description: weekDescription,
+                      phase_order: wIndex + 1,
+                      sessions: sessionPayloads)
+            )
+        }
+
+        let requestBody = ServerSaveRequest(
+            route_name: routeName,
+            grade: grade,
+            route_overview: planModel.routeOverview,
+            training_overview: planModel.trainingOverview,
+            phases: phasePayloads
+        )
+
+        let url = URL(string: "\(baseURL)/training_plans/\(email)/save")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addAuthHeader()
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(requestBody)
+
+        let (_, response) = try await URLSession.shared.authenticatedData(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw NSError(domain: "GeneratedPlansManager",
+                          code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to save plan to server"])
+        }
     }
 }
