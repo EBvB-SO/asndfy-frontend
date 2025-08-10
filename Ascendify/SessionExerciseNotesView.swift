@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-/// Displays all exercise notes for a single training session.
+/// Displays overall session notes and all exercise notes for a single training session.
 struct SessionExerciseNotesView: View {
     /// The training session for which to display exercise notes.
     let session: SessionTracking
@@ -17,10 +17,17 @@ struct SessionExerciseNotesView: View {
     /// Access to the shared tracking manager which stores exercise history.
     @ObservedObject private var trackingManager = SessionTrackingManager.shared
 
+    // Pull the latest notes from the source of truth so edits are reflected live
+    private var sessionNotes: String {
+        trackingManager.sessionTracking[planId]?
+            .first(where: { $0.id == session.id })?.notes
+        ?? session.notes
+    }
+
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // MARK: - Custom header
+                // MARK: - Header (icon, title, date)
                 VStack(spacing: 6) {
                     Image(systemName: "figure.strengthtraining.traditional")
                         .font(.system(size: 36))
@@ -30,20 +37,18 @@ struct SessionExerciseNotesView: View {
                         .font(.title2)
                         .fontWeight(.bold)
                         .multilineTextAlignment(.center)
-                        .lineLimit(2) // Allow two lines
+                        .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal)
 
-                    // Date at top (all exercises share the same date)
-                    if let sessionDate = trackingManager.exerciseHistory[planId]?
+                    if let firstDate = trackingManager.exerciseHistory[planId]?
                         .first(where: { $0.sessionId == session.id })?.date {
-                        Text(sessionDate, style: .date)
+                        Text(firstDate, style: .date)
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
 
-                    Divider()
-                        .padding(.horizontal)
+                    Divider().padding(.horizontal)
                 }
                 .padding(.vertical, 12)
                 .background(
@@ -57,8 +62,29 @@ struct SessionExerciseNotesView: View {
                     )
                 )
 
-                // MARK: - Exercise list
+                // MARK: - Content List
                 List {
+                    // Overview card as its own box
+                    if !sessionNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "note.text")
+                                Text("Session Overview Notes")
+                                    .font(.headline)
+                            }
+                            .foregroundColor(.primary)
+
+                            Text(sessionNotes)
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
+                        }
+                        .padding(.vertical, 6)
+                        .accessibilityElement(children: .combine)
+                    }
+
+                    // Exercise entries
                     let entries = trackingManager.exerciseHistory[planId]?
                         .filter { $0.sessionId == session.id } ?? []
 
@@ -71,6 +97,7 @@ struct SessionExerciseNotesView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(extractExerciseTitle(from: entry.notes))
                                     .font(.headline)
+
                                 let cleaned = trackingManager.cleanNotesForDisplay(entry.notes)
                                 if !cleaned.isEmpty {
                                     Text(cleaned)
@@ -87,7 +114,8 @@ struct SessionExerciseNotesView: View {
         }
     }
 
-    /// Extracts the user visible exercise title from the tagged notes string.
+    /// Extracts the user-visible exercise title from the tagged notes string.
+    /// Notes can look like: "[EXERCISE:Campus Board][KEY:abc123] …"
     private func extractExerciseTitle(from notes: String) -> String {
         if let range = notes.range(of: #"\[EXERCISE:([^\]]+)\]"#, options: .regularExpression) {
             let match = String(notes[range])
