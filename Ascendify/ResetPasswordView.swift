@@ -216,12 +216,3 @@ struct ResetPasswordView: View {
         }
     }
 }
-
-// MARK: - Preview
-
-struct ResetPasswordView_Previews: PreviewProvider {
-    static var previews: some View {
-        ResetPasswordView(email: "test@example.com")
-            .environmentObject(UserViewModel())
-    }
-}

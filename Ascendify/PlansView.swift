@@ -274,39 +274,3 @@ struct PlanDetailViewWrapper: View {
         .transition(.move(edge: .trailing))
     }
 }
-
-// MARK: - Preview
-struct PlansView_Previews: PreviewProvider {
-    static var previews: some View {
-        let mockPlans = [
-            PlanWrapper(
-                routeName: "Test Route",
-                grade: "7a+",
-                plan: PlanModel(
-                    routeOverview: "Test overview",
-                    trainingOverview: "Test training",
-                    weeks: [
-                        PlanWeek(
-                            title: "Week 1-2: Base Building",
-                            sessions: [
-                                PlanSession(
-                                    sessionTitle: "Monday: Strength",
-                                    warmUp: ["General warm-up"],
-                                    mainWorkout: [PlanExercise(type: "strength", title: "Pull-ups", description: "Standard pull-ups")],
-                                    coolDown: ["Stretching"]
-                                )
-                            ]
-                        )
-                    ]
-                )
-            )
-        ]
-        
-        return NavigationView {
-            PlansView()
-                .onAppear {
-                    GeneratedPlansManager.shared.plans = mockPlans
-                }
-        }
-    }
-}

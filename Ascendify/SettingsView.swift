@@ -16,28 +16,37 @@ struct SettingsView: View {
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
     
+    // ADDED: State for showing questionnaire
+    @State private var showQuestionnaireSheet = false
+    
     var body: some View {
         VStack(spacing: 0) {
             // Custom header instead of navigation title
             HeaderView()
             
             Form {
+                // ADDED: New section for Profile & Data
+                Section(header:
+                    Text("PROFILE & DATA")
+                        .font(.caption)
+                        .textCase(.uppercase)
+                        .foregroundColor(.deepPurple)
+                ) {
+                    Button {
+                        showQuestionnaireSheet = true
+                    } label: {
+                        Label("Update Questionnaire", systemImage: "doc.text.fill")
+                            .foregroundColor(.deepPurple)
+                    }
+                }
+                
                 Section(header:
                     Text("ACCOUNT")
                         .font(.caption)
                         .textCase(.uppercase)
                         .foregroundColor(.deepPurple)
                 ) {
-                    // 1) Fix the unterminated‐string by dropping the backslashes—
-                    //    you can just write ?? "" inside an interpolation:
                     Text("Email: \(userViewModel.userProfile?.email ?? "")")
-                    
-                    Button {
-                        userViewModel.signOut()
-                    } label: {
-                        Label("Sign Out", systemImage: "arrow.right.square")
-                            .foregroundColor(.red)
-                    }
                     
                     Button {
                         showDeleteConfirmation = true
@@ -50,8 +59,13 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    // 2) For all of these .alert modifiers, wrap your title string
-                    //    in Text(...) so SwiftUI picks the correct overload.
+                    
+                    Button {
+                        userViewModel.signOut()
+                    } label: {
+                        Label("Sign Out", systemImage: "arrow.right.square")
+                            .foregroundColor(.red)
+                    }
                     .alert(
                         Text("Confirm Account Deletion"),
                         isPresented: $showDeleteConfirmation,
@@ -113,13 +127,10 @@ struct SettingsView: View {
             }
         }
         .navigationBarHidden(true)
-    }
-}
-
-
-struct SettingsView_Previews: PreviewProvider {
-    static var previews: some View {
-        SettingsView()
-            .environmentObject(UserViewModel())
+        // ADDED: Sheet for questionnaire
+        .sheet(isPresented: $showQuestionnaireSheet) {
+            QuestionnaireView()
+                .environmentObject(userViewModel)
+        }
     }
 }

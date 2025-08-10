@@ -398,22 +398,3 @@ struct FullLogEntryView: View {
         return formatter.string(from: entry.dateObject)
     }
 }
-
-struct ProjectDetailView_Previews: PreviewProvider {
-    static var previews: some View {
-        NavigationView {
-            ProjectDetailView(
-                project: ProjectModel(
-                    routeName: "Example Route",
-                    grade: "7a+",
-                    crag: "Example Crag",
-                    description: "This is an example project description.",
-                    logEntries: [
-                        LogEntry(date: Date(), content: "First attempt. Managed to figure out the first crux."),
-                        LogEntry(date: Date().addingTimeInterval(-86400), content: "Second attempt. Got higher today!")
-                    ]
-                )
-            )
-        }
-    }
-}

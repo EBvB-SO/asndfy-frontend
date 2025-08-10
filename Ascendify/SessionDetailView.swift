@@ -935,12 +935,3 @@ struct SessionDetailView: View {
         )
     }
 }
-
-// MARK: - Preview
-#if DEBUG
-struct SessionDetailView_Previews: PreviewProvider {
-    static var previews: some View {
-        Text("SessionDetailView Preview")
-    }
-}
-#endif

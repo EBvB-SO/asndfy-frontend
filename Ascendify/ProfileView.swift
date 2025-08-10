@@ -13,7 +13,7 @@ struct ProfileView: View {
     @EnvironmentObject var userViewModel: UserViewModel
     @ObservedObject var plansManager = GeneratedPlansManager.shared
     @ObservedObject var projectsManager = ProjectsManager.shared
-    @State private var showQuestionnaireSheet = false
+    // REMOVED: @State private var showQuestionnaireSheet = false
 
     // Generate badges via helper
     private var badges: [BadgeData] {
@@ -112,37 +112,13 @@ struct ProfileView: View {
                             }
                         }
 
-                        // MARK: – "Edit Questionnaire" at Bottom
-                        Button(action: {
-                            showQuestionnaireSheet = true
-                        }) {
-                            Text("Update Questionnaire")
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                                .padding(.vertical, 10)
-                                .frame(maxWidth: .infinity)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(Color.ascendGreen)
-                                        .shadow(
-                                            color: Color.ascendGreen.opacity(0.4),
-                                            radius: 6,
-                                            x: 0,
-                                            y: 3
-                                        )
-                                )
-                        }
-                        .padding(.horizontal)
-                        .padding(.vertical, 16)
+                        // REMOVED: "Edit Questionnaire" button section
                     }
                     .padding(.bottom, 20)
                 }
             }
         }
-        .sheet(isPresented: $showQuestionnaireSheet) {
-            QuestionnaireView()
-                .environmentObject(userViewModel)
-        }
+        // REMOVED: .sheet(isPresented: $showQuestionnaireSheet) { ... }
     }
     
     // MARK: - DEBUG FUNCTIONS (INSIDE THE STRUCT)
@@ -311,23 +287,5 @@ struct StatsGridView: View {
                 )
             }
         }
-    }
-}
-
-// MARK: – Preview
-
-struct ProfileView_Previews: PreviewProvider {
-    static var previews: some View {
-        let userViewModel = UserViewModel()
-        var profile = UserProfile()
-        profile.name = "Test User"
-        profile.currentClimbingGrade = "7a"
-        profile.maxBoulderGrade = "V5"
-        profile.goal = "8a"
-        userViewModel.userProfile = profile
-
-        return ProfileView()
-            .environmentObject(userViewModel)
-            .previewDevice("iPhone 14")
     }
 }
