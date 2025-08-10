@@ -138,41 +138,55 @@ struct CalendarDayWrapper: Identifiable {
 // MARK: - Diary Manager
 class DiaryManager: ObservableObject {
     static let shared = DiaryManager()
-    
+
     @Published var dailyNotes: [DailyNote] = []
     @Published var isSyncing = false
     @Published var syncError: String? = nil
-    
-    private let dailyNotesKey = "diary_daily_notes"
+
+    private var currentUserEmail: String?
     private let baseURL = "http://127.0.0.1:8001"
-    private var syncTask: Task<Void, Never>?
-    
-    private init() {
-        loadDailyNotes()
-        // Sync with server after loading local data
-        Task {
-            await syncDailyNotes()
-        }
+
+    // Compute a per‑user key.  If email isn’t set, don’t load or save anything.
+    private func storageKey() -> String? {
+        guard let email = currentUserEmail else { return nil }
+        return "diary_daily_notes_\(email.lowercased())"
     }
-    
-    // MARK: - Local Storage
+
+    // Call this when the user signs in
+    func setCurrentUser(email: String) {
+        currentUserEmail = email.lowercased()
+        dailyNotes = []           // clear in‑memory notes immediately
+        loadDailyNotes()          // load the signed‑in user’s notes
+        Task { await syncDailyNotes() }  // optional: refresh from server
+    }
+
+    // Call this on sign‑out
+    func clearForSignOut() {
+        if let key = storageKey() {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        dailyNotes = []
+        currentUserEmail = nil
+    }
+
+    // Use the computed key when loading notes
     private func loadDailyNotes() {
-        if let data = UserDefaults.standard.data(forKey: dailyNotesKey) {
-            do {
-                dailyNotes = try JSONDecoder().decode([DailyNote].self, from: data)
-            } catch {
-                print("Error loading daily notes: \(error)")
-            }
+        guard let key = storageKey() else {
+            dailyNotes = []
+            return
+        }
+        if let data = UserDefaults.standard.data(forKey: key) {
+            dailyNotes = (try? JSONDecoder().decode([DailyNote].self, from: data)) ?? []
+        } else {
+            dailyNotes = []
         }
     }
-    
+
+    // Use the computed key when saving notes
     private func saveDailyNotes() {
-        do {
-            let data = try JSONEncoder().encode(dailyNotes)
-            UserDefaults.standard.set(data, forKey: dailyNotesKey)
-        } catch {
-            print("Error saving daily notes: \(error)")
-        }
+        guard let key = storageKey(),
+              let data = try? JSONEncoder().encode(dailyNotes) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
     
     // MARK: - Server Sync
@@ -191,25 +205,34 @@ class DiaryManager: ObservableObject {
 
             // Use authenticated request
             let (data, _) = try await URLSession.shared.authenticatedData(for: request)
-            
+
             let decoder = JSONDecoder()
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             decoder.dateDecodingStrategy = .iso8601
             let serverNotes = try decoder.decode([DailyNoteServer].self, from: data)
 
-            // Rest of the method remains the same...
             var mergedNotes: [DailyNote] = []
             var serverNoteIds = Set<String>()
 
+            // 1) Add all server notes to merged list
             for serverNote in serverNotes {
-                serverNoteIds.insert(serverNote.id)
+                serverNoteIds.insert(serverNote.id.lowercased()) // normalize IDs
                 mergedNotes.append(DailyNote(from: serverNote))
             }
 
-            for localNote in dailyNotes where !serverNoteIds.contains(localNote.id.uuidString) && !localNote.isSynced {
+            // 2) Push any local unsynced notes that aren’t on the server yet
+            for localNote in dailyNotes
+            where !serverNoteIds.contains(localNote.id.uuidString.lowercased()) && !localNote.isSynced {
                 await createNoteOnServer(localNote)
             }
 
+            // 3) Ensure local unsynced notes stay visible immediately
+            let localUnsynced = dailyNotes.filter {
+                !serverNoteIds.contains($0.id.uuidString.lowercased()) && !$0.isSynced
+            }
+            mergedNotes.append(contentsOf: localUnsynced)
+
+            // 4) Publish + persist
             self.dailyNotes = mergedNotes
             self.saveDailyNotes()
 
@@ -221,7 +244,6 @@ class DiaryManager: ObservableObject {
 
         isSyncing = false
     }
-
     
     // MARK: - Daily Notes Management
     func addDailyNote(date: Date, content: String) {
@@ -262,44 +284,47 @@ class DiaryManager: ObservableObject {
     @MainActor
     private func createNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
-        
+
+        // Lowercase ID for consistency (even though it's not in the URL)
+        let _ = note.id.uuidString.lowercased()
+
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "yyyy-MM-dd"
         dayFormatter.timeZone = TimeZone.current
         let dateString = dayFormatter.string(from: note.date)
-        
+
         do {
             let url = URL(string: "\(baseURL)/daily_notes/\(email)")!
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.addAuthHeader()
-            
+
             let payload = DailyNoteCreateRequest(
                 date:    dateString,
                 content: note.content
             )
-            
+
             let encoder = JSONEncoder()
             encoder.keyEncodingStrategy = .convertToSnakeCase
             encoder.dateEncodingStrategy = .iso8601
             request.httpBody = try encoder.encode(payload)
-            
+
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200 {
+
+            if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
                 // Update local note as synced
                 if let index = dailyNotes.firstIndex(where: { $0.id == note.id }) {
                     dailyNotes[index].isSynced = true
+                    dailyNotes[index].syncError = nil
                     saveDailyNotes()
                 }
-                print("Daily note created on server")
+                print("✅ Daily note created on server")
             } else {
-                print("Failed to create note on server")
+                print("❌ Failed to create note on server")
             }
         } catch {
-            print("Error creating note on server: \(error)")
+            print("❌ Error creating note on server: \(error)")
             // Mark note as having sync error
             if let index = dailyNotes.firstIndex(where: { $0.id == note.id }) {
                 dailyNotes[index].syncError = error.localizedDescription
@@ -307,75 +332,63 @@ class DiaryManager: ObservableObject {
             }
         }
     }
+
     
+    // MARK: - Server Update
+
     @MainActor
     private func updateNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
-        
+
         do {
-            let url = URL(string: "\(baseURL)/daily_notes/\(email)/\(note.id)")!
+            let noteIdString = note.id.uuidString.lowercased()
+            let url = URL(string: "\(baseURL)/daily_notes/\(email)/\(noteIdString)")!
             var request = URLRequest(url: url)
             request.httpMethod = "PUT"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.addAuthHeader()
-            
-            let payload = DailyNoteUpdateRequest(content: note.content)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(note)
 
-            let encoder = JSONEncoder()
-            encoder.keyEncodingStrategy   = .convertToSnakeCase
-            encoder.dateEncodingStrategy  = .iso8601
-
-            request.httpBody = try encoder.encode(payload)
-            
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200 {
-                // Update local note as synced
+
+            if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
                 if let index = dailyNotes.firstIndex(where: { $0.id == note.id }) {
                     dailyNotes[index].isSynced = true
-                    dailyNotes[index].syncError = nil
-                    saveDailyNotes()
                 }
-                print("Daily note updated on server")
+                saveDailyNotes()
+            } else {
+                print("❌ Failed to update note on server")
             }
         } catch {
-            print("Error updating note on server: \(error)")
-            if let index = dailyNotes.firstIndex(where: { $0.id == note.id }) {
-                dailyNotes[index].syncError = error.localizedDescription
-                saveDailyNotes()
-            }
+            print("❌ Error updating note on server: \(error)")
         }
     }
-    
+
+    // MARK: - Server Delete
+
     @MainActor
     private func deleteNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
-        
+
         do {
-            // Convert UUID to lowercase string to match server expectation
             let noteIdString = note.id.uuidString.lowercased()
             let url = URL(string: "\(baseURL)/daily_notes/\(email)/\(noteIdString)")!
-            
             var request = URLRequest(url: url)
             request.httpMethod = "DELETE"
             request.addAuthHeader()
-            
+
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                
-                if httpResponse.statusCode == 200 {
-                    // Only delete locally after server confirms deletion
-                    dailyNotes.removeAll { $0.id == note.id }
-                    saveDailyNotes()
-                    print("Daily note deleted from server and locally")
-                }
+
+            if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
+                print("✅ Note deleted on server")
+            } else {
+                print("❌ Failed to delete note on server")
             }
         } catch {
-            print("Error deleting note from server: \(error)")
+            print("❌ Error deleting note on server: \(error)")
         }
     }
+
     
     // MARK: - Get All Entries for a Date
     func getEntriesForDate(_ date: Date) -> [DiaryEntryType] {

@@ -234,6 +234,8 @@ class UserViewModel: ObservableObject {
                                 await SessionTrackingManager.shared.syncAllPlans()
                             }
                             
+                            DiaryManager.shared.setCurrentUser(email: userEmail)
+                            
                             // Fetch complete profile
                             self.fetchUserProfile(email: userEmail) { success in
                                 if success {
@@ -708,6 +710,7 @@ class UserViewModel: ObservableObject {
             
             // ✅ NEW: Set current user for SessionTrackingManager BEFORE auto-login
             SessionTrackingManager.shared.setCurrentUser(email: credentials.email)
+            DiaryManager.shared.setCurrentUser(email: credentials.email)
             
             signIn(email: credentials.email, password: credentials.password) { success, error in
                 if success {
@@ -730,6 +733,7 @@ class UserViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "ascendify_saved_plans")
         
         SessionTrackingManager.shared.clearForSignOut()
+        DiaryManager.shared.clearForSignOut()
         
         self.userProfile = nil
         self.isSignedIn = false
