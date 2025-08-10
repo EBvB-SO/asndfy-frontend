@@ -936,6 +936,16 @@ struct TrainingEntryCard: View {
     let planId: String
     @StateObject private var trackingManager = SessionTrackingManager.shared
     
+    private func routeDisplayName(from planId: String) -> String {
+        let parts = planId.split(separator: "_")
+        guard parts.count >= 2 else { return planId } // fallback if format is unexpected
+        let grade = parts.last!
+        let name = parts.dropLast()
+            .map { String($0).capitalized }
+            .joined(separator: " ")
+        return "\(name) \(grade)"
+    }
+    
     private var exerciseCount: Int {
         trackingManager.exerciseHistory[planId]?
             .filter { $0.sessionId == session.id }
@@ -986,6 +996,31 @@ struct TrainingEntryCard: View {
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
+                
+                // ROUTE CHIP – clearer + labeled
+                HStack(spacing: 6) {
+                    Image(systemName: "mountain.2.fill")
+                        .font(.caption)
+                        .foregroundColor(.purple)
+                    Text("Route:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(routeDisplayName(from: planId))
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.deepPurple)
+                }
+                .padding(.leading, 2) // 👈 this keeps chip aligned with focusName text
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule().fill(Color.purple.opacity(0.12))
+                )
+                .overlay(
+                    Capsule().stroke(Color.purple.opacity(0.25), lineWidth: 1)
+                )
+                .accessibilityLabel("Route \(routeDisplayName(from: planId))")
+
                 
                 if exerciseCount > 0 {
                     HStack {

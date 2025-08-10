@@ -439,27 +439,90 @@ struct SessionDetailView: View {
     }
 
     // MARK: - Notes View (Enhanced)
+
+    @State private var notesSaved = false   // controls the “saved” feedback
+
+    /// Do we already have notes saved for this session?
+    private var hasExistingNotes: Bool {
+        !sessionTracking.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Has the text changed compared to what’s stored?
+    private var isDirty: Bool {
+        notes.trimmingCharacters(in: .whitespacesAndNewlines) !=
+        sessionTracking.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Button title logic
+    private var saveButtonTitle: String {
+        if hasExistingNotes {
+            return isDirty ? "Update Notes" : "Saved"
+        } else {
+            return "Save Notes"
+        }
+    }
+
     private func notesView() -> some View {
         VStack(spacing: 16) {
+
+            // Saved banner
+            if notesSaved {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("Notes saved")
+                        .font(.callout)
+                        .foregroundColor(.primary)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.green.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.green.opacity(0.25), lineWidth: 1)
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .animation(.spring(response: 0.35, dampingFraction: 0.9), value: notesSaved)
+            }
+
+            // Editor
             TextEditor(text: $notes)
                 .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.gray.opacity(0.3)))
+                .frame(minHeight: 200)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.white)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.gray.opacity(0.25), lineWidth: 1)
+                )
                 .padding(.horizontal)
-            
+                .onChange(of: notes) { _ in
+                    // Hide “saved” banner as soon as the user edits again
+                    if notesSaved { notesSaved = false }
+                }
+
+            // Save / Update button
             Button(action: saveSessionNotes) {
-                HStack {
+                HStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.down")
-                    Text("Save Notes")
+                    Text(saveButtonTitle)
+                        .fontWeight(.semibold)
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color.tealBlue)
-                .foregroundColor(.white)
-                .cornerRadius(8)
-                .padding(.horizontal)
+                .background(isDirty ? Color.ascendGreen : Color.gray.opacity(0.25))
+                .foregroundColor(isDirty ? .white : .gray)
+                .cornerRadius(12)
             }
-            
+            .disabled(!isDirty)
+            .padding(.horizontal)
+            .accessibilityLabel(saveButtonTitle)
+
             Text("Tip: Use 'Edit Session' to change completion date and status")
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -473,7 +536,22 @@ struct SessionDetailView: View {
             sessionId: sessionTracking.id,
             notes: notes
         )
+
+        // Optional: update local in-memory copy if your model isn’t auto-updating
+        // sessionTracking.notes = notes
+
+        // Haptic + “saved” banner
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        withAnimation {
+            notesSaved = true
+        }
+
+        // Auto-hide the banner after a moment
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            withAnimation {
+                notesSaved = false
+            }
+        }
     }
 
     // MARK: - History View (Enhanced)
