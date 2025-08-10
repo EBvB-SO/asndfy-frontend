@@ -95,15 +95,36 @@ final class SessionTrackingManager: ObservableObject {
     @Published var lastSyncTime: Date? = nil
 
     // Storage keys
-    private let storageKey = "session_tracking_data"
-    private let exerciseHistoryKey = "exercise_tracking_data"
-    private let pendingSessionUpdatesKey = "pending_session_updates"
-    private let pendingExerciseUpdatesKey = "pending_exercise_updates"
-    private let lastSyncTimeKey = "last_sync_time"
+    private func storageKey() -> String {
+        guard let email = currentUserEmail else { return "session_tracking_data" }
+        return "session_tracking_data_\(email)"
+    }
+
+    private func exerciseHistoryKey() -> String {
+        guard let email = currentUserEmail else { return "exercise_tracking_data" }
+        return "exercise_tracking_data_\(email)"
+    }
+
+    private func pendingSessionUpdatesKey() -> String {
+        guard let email = currentUserEmail else { return "pending_session_updates" }
+        return "pending_session_updates_\(email)"
+    }
+
+    private func pendingExerciseUpdatesKey() -> String {
+        guard let email = currentUserEmail else { return "pending_exercise_updates" }
+        return "pending_exercise_updates_\(email)"
+    }
+
+    private func lastSyncTimeKey() -> String {
+        guard let email = currentUserEmail else { return "last_sync_time" }
+        return "last_sync_time_\(email)"
+    }
 
     // Configuration
     private let baseURL = "http://127.0.0.1:8001"
     private let maxRetryCount = 3
+    private var currentUserEmail: String?
+
     
     // Pending updates
     private var pendingSessionUpdates: [PendingSessionUpdate] = []
@@ -123,6 +144,16 @@ final class SessionTrackingManager: ObservableObject {
     deinit {
         stopAutoSyncTimer()
         networkMonitor.cancel()
+    }
+    
+    func setCurrentUser(email: String) {
+        currentUserEmail = email.lowercased()
+        loadAllData()
+    }
+
+    func clearForSignOut() {
+        currentUserEmail = nil
+        clearAllData()
     }
     
     private func extractExerciseTitle(from notes: String) -> String {
@@ -153,6 +184,16 @@ final class SessionTrackingManager: ObservableObject {
 
     // MARK: - Data Loading and Saving
     private func loadAllData() {
+        guard currentUserEmail != nil else {
+            // Don’t load anything until a user is set
+            sessionTracking.removeAll()
+            exerciseHistory.removeAll()
+            pendingSessionUpdates.removeAll()
+            pendingExerciseUpdates.removeAll()
+            lastSyncTime = nil
+            return
+        }
+
         loadSessionTracking()
         loadExerciseHistory()
         loadPendingSessionUpdates()
@@ -161,7 +202,7 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     private func loadSessionTracking() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey) else { return }
+        guard let data = UserDefaults.standard.data(forKey: storageKey()) else { return }
         do {
             let decoded = try jsonDecoder.decode([String: [SessionTracking]].self, from: data)
             DispatchQueue.main.async {
@@ -176,14 +217,14 @@ final class SessionTrackingManager: ObservableObject {
     private func saveSessionTracking() {
         do {
             let data = try jsonEncoder.encode(sessionTracking)
-            UserDefaults.standard.set(data, forKey: storageKey)
+            UserDefaults.standard.set(data, forKey: storageKey())
         } catch {
             print("❌ Error saving session tracking: \(error)")
         }
     }
 
     private func loadExerciseHistory() {
-        guard let data = UserDefaults.standard.data(forKey: exerciseHistoryKey) else { return }
+        guard let data = UserDefaults.standard.data(forKey: exerciseHistoryKey()) else { return }
         do {
             let decoded = try jsonDecoder.decode([String: [ExerciseTracking]].self, from: data)
             DispatchQueue.main.async {
@@ -198,7 +239,7 @@ final class SessionTrackingManager: ObservableObject {
     private func saveExerciseHistory() {
         do {
             let data = try jsonEncoder.encode(exerciseHistory)
-            UserDefaults.standard.set(data, forKey: exerciseHistoryKey)
+            UserDefaults.standard.set(data, forKey: exerciseHistoryKey())
             print("💾 Saved exercise history to UserDefaults")
         } catch {
             print("❌ Error saving exercise history: \(error)")
@@ -206,7 +247,7 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     private func loadPendingSessionUpdates() {
-        guard let data = UserDefaults.standard.data(forKey: pendingSessionUpdatesKey) else { return }
+        guard let data = UserDefaults.standard.data(forKey: pendingSessionUpdatesKey()) else { return }
         do {
             pendingSessionUpdates = try jsonDecoder.decode([PendingSessionUpdate].self, from: data)
             print("✅ Loaded \(pendingSessionUpdates.count) pending session updates")
@@ -218,14 +259,14 @@ final class SessionTrackingManager: ObservableObject {
     private func savePendingSessionUpdates() {
         do {
             let data = try jsonEncoder.encode(pendingSessionUpdates)
-            UserDefaults.standard.set(data, forKey: pendingSessionUpdatesKey)
+            UserDefaults.standard.set(data, forKey: pendingSessionUpdatesKey())
         } catch {
             print("❌ Error saving pending session updates: \(error)")
         }
     }
 
     private func loadPendingExerciseUpdates() {
-        guard let data = UserDefaults.standard.data(forKey: pendingExerciseUpdatesKey) else { return }
+        guard let data = UserDefaults.standard.data(forKey: pendingExerciseUpdatesKey()) else { return }
         do {
             pendingExerciseUpdates = try jsonDecoder.decode([PendingExerciseUpdate].self, from: data)
             print("✅ Loaded \(pendingExerciseUpdates.count) pending exercise updates")
@@ -237,18 +278,18 @@ final class SessionTrackingManager: ObservableObject {
     private func savePendingExerciseUpdates() {
         do {
             let data = try jsonEncoder.encode(pendingExerciseUpdates)
-            UserDefaults.standard.set(data, forKey: pendingExerciseUpdatesKey)
+            UserDefaults.standard.set(data, forKey: pendingExerciseUpdatesKey())
         } catch {
             print("❌ Error saving pending exercise updates: \(error)")
         }
     }
 
     private func loadLastSyncTime() {
-        lastSyncTime = UserDefaults.standard.object(forKey: lastSyncTimeKey) as? Date
+        lastSyncTime = UserDefaults.standard.object(forKey: lastSyncTimeKey()) as? Date
     }
 
     private func saveLastSyncTime() {
-        UserDefaults.standard.set(lastSyncTime, forKey: lastSyncTimeKey)
+        UserDefaults.standard.set(lastSyncTime, forKey: lastSyncTimeKey())
     }
 
     // MARK: - Network Monitoring
@@ -1330,7 +1371,7 @@ final class SessionTrackingManager: ObservableObject {
             self.savePendingSessionUpdates()
             self.savePendingExerciseUpdates()
             
-            UserDefaults.standard.removeObject(forKey: self.lastSyncTimeKey)
+            UserDefaults.standard.removeObject(forKey: self.lastSyncTimeKey())
             self.lastSyncTime = nil
             
             self.objectWillChange.send()

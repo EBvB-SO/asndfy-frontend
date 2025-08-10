@@ -228,6 +228,12 @@ class UserViewModel: ObservableObject {
                             self.userProfile = basicProfile
                             self.objectWillChange.send()
                             
+                            SessionTrackingManager.shared.setCurrentUser(email: userEmail)
+                            SessionTrackingManager.shared.clearAllData()
+                            Task {
+                                await SessionTrackingManager.shared.syncAllPlans()
+                            }
+                            
                             // Fetch complete profile
                             self.fetchUserProfile(email: userEmail) { success in
                                 if success {
@@ -700,6 +706,9 @@ class UserViewModel: ObservableObject {
             
             self.userProfile = basicProfile
             
+            // ✅ NEW: Set current user for SessionTrackingManager BEFORE auto-login
+            SessionTrackingManager.shared.setCurrentUser(email: credentials.email)
+            
             signIn(email: credentials.email, password: credentials.password) { success, error in
                 if success {
                     if let name = savedName, var profile = self.userProfile {
@@ -712,12 +721,15 @@ class UserViewModel: ObservableObject {
             }
         }
     }
+
     
     // MARK: - Sign Out
     func signOut() {
         clearCredentials()
         UserDefaults.standard.removeObject(forKey: userNameKey)
         UserDefaults.standard.removeObject(forKey: "ascendify_saved_plans")
+        
+        SessionTrackingManager.shared.clearForSignOut()
         
         self.userProfile = nil
         self.isSignedIn = false
