@@ -256,6 +256,11 @@ class GeneratedPlansManager: ObservableObject {
 
 extension GeneratedPlansManager {
     /// Send a newly generated plan to the backend
+
+    private var weekdayNames: [String] {
+            ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        }
+    
     func savePlanToServer(routeName: String,
                           grade: String,
                           planModel: PlanModel) async throws {
@@ -276,21 +281,19 @@ extension GeneratedPlansManager {
             var sessionPayloads: [ServerSaveRequest.Phase.Session] = []
 
             for (sIndex, session) in week.sessions.enumerated() {
-                // Build a human-readable details block from warmup / main / cooldown
-                let warmupLine = session.warmUp.isEmpty ? "" : "Warm-up: " + session.warmUp.joined(separator: ", ")
-                let mainLine   = session.mainWorkout.isEmpty
-                    ? ""
-                    : "Main: " + session.mainWorkout.map { $0.title }.joined(separator: ", ")
+                // Build details text
+                let warmupLine   = session.warmUp.isEmpty ? "" : "Warm-up: " + session.warmUp.joined(separator: ", ")
+                let mainLine     = session.mainWorkout.isEmpty ? "" : "Main: " + session.mainWorkout.map { $0.title }.joined(separator: ", ")
                 let cooldownLine = session.coolDown.isEmpty ? "" : "Cool-down: " + session.coolDown.joined(separator: ", ")
-
                 let detailsParts = [warmupLine, mainLine, cooldownLine].filter { !$0.isEmpty }
-                let details = detailsParts.joined(separator: "\n")
+                let details      = detailsParts.joined(separator: "\n")
 
-                // Focus: use the first main workout title if present, else the session title
-                let focus = session.mainWorkout.first?.title ?? session.sessionTitle
+                // DAY: use a short, safe label (fits VARCHAR(50))
+                let dayText = weekdayNames[sIndex % weekdayNames.count]  // "Monday", "Tuesday", ...
 
-                // Day: we don’t actually have a weekday field; use the sessionTitle
-                let dayText = session.sessionTitle
+                // FOCUS: first main workout title if present, otherwise session title; then truncate
+                var focus = session.mainWorkout.first?.title ?? session.sessionTitle
+                if focus.count > 50 { focus = String(focus.prefix(50)) } // DB has VARCHAR(255); 50 keeps us safe
 
                 sessionPayloads.append(
                     .init(day: dayText,
