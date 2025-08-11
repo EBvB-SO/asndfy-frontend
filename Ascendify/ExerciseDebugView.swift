@@ -105,9 +105,3 @@ struct ExerciseDebugView: View {
         result = debugOutput
     }
 }
-
-struct ExerciseDebugView_Previews: PreviewProvider {
-    static var previews: some View {
-        ExerciseDebugView()
-    }
-}

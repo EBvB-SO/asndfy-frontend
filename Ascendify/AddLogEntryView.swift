@@ -185,11 +185,3 @@ extension AddLogEntryView {
         }
     }
 }
-
-// MARK: - Preview
-
-struct AddLogEntryView_Previews: PreviewProvider {
-    static var previews: some View {
-        AddLogEntryView(projectId: UUID().uuidString.lowercased())
-    }
-}

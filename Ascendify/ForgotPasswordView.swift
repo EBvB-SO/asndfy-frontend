@@ -311,12 +311,3 @@ struct EmailTroubleshootingView: View {
         .padding()
     }
 }
-
-// MARK: - Preview
-
-struct ForgotPasswordView_Previews: PreviewProvider {
-    static var previews: some View {
-        ForgotPasswordView()
-          .environmentObject(UserViewModel.shared)
-    }
-}

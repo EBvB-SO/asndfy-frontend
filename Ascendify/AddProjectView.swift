@@ -198,9 +198,3 @@ struct AddProjectView: View {
         dismiss()
     }
 }
-
-struct AddProjectView_Previews: PreviewProvider {
-    static var previews: some View {
-        AddProjectView(userEmail: "preview@example.com")
-    }
-}

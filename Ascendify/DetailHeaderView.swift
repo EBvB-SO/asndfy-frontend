@@ -61,10 +61,3 @@ struct DetailHeaderView: View {
         Spacer().frame(width: 44)
     }
 }
-
-// MARK: - Preview
-struct DetailHeaderView_Previews: PreviewProvider {
-    static var previews: some View {
-        DetailHeaderView(onBack: {})
-    }
-}

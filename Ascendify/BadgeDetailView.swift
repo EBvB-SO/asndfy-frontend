@@ -91,17 +91,3 @@ struct BadgeDetailView: View {
         return formatter
     }
 }
-
-struct BadgeDetailView_Previews: PreviewProvider {
-    static var previews: some View {
-        BadgeDetailView(badge: BadgeData(
-            name: "Overhang Climber",
-            description: "Completed an overhanging route",
-            iconName: "arrow.up.right",
-            isEarned: true,
-            category: .styles,
-            achievementDate: Date(),
-            howToEarn: "Complete a project with the Overhanging angle."
-        ))
-    }
-}
