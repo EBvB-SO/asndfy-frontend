@@ -54,6 +54,7 @@ class UserViewModel: ObservableObject {
     @Published var isSignedIn = false
     @Published var needsQuestionnaire = false
     @Published var userProfile: UserProfile? = nil
+    @Published var showQuestionnairePrompt: Bool = false
     
     // JWT Token storage
     @Published var accessToken: String? = nil
@@ -66,9 +67,18 @@ class UserViewModel: ObservableObject {
     private let tokenKey = "accessToken"
     private let needsQuestionnaireKey = "needsQuestionnaire"
     private let userNameKey = "userName"
+    private let showQuestionnairePromptKey = "showQuestionnairePrompt"
     
     init() {
         restoreAuthState()
+        let storedPrompt = UserDefaults.standard.bool(forKey: showQuestionnairePromptKey)
+        self.showQuestionnairePrompt = storedPrompt
+    }
+    
+    // Helper to update and persist the flag
+    func setShowQuestionnairePrompt(_ show: Bool) {
+        self.showQuestionnairePrompt = show
+        UserDefaults.standard.set(show, forKey: showQuestionnairePromptKey)
     }
     
     // MARK: - Authenticated Request Helper
@@ -355,98 +365,103 @@ class UserViewModel: ObservableObject {
     
     // MARK: - Fetch User Profile (with authentication)
     func fetchUserProfile(email: String, completion: @escaping (Bool) -> Void) {
-        // 1) Build URL
         guard let url = URL(string: "\(baseURL)/users/profile/\(email)") else {
-            completion(false)
-            return
+            completion(false); return
         }
 
-        // 2) Send via retry‐on‐401 helper
         performAuthenticatedRequest({
             self.authenticatedRequest(url: url, method: "GET")
         }) { data, response, error in
             DispatchQueue.main.async {
-                // Network or other error?
                 if let error = error {
                     print("fetchUserProfile error:", error.localizedDescription)
-                    completion(false)
-                    return
+                    completion(false); return
                 }
 
-                // Must have a valid HTTP response
                 guard let http = response as? HTTPURLResponse else {
-                    completion(false)
-                    return
+                    completion(false); return
                 }
-                
+
                 if http.statusCode == 403 {
                     print("❌ Forbidden: Not authorized to access this profile")
-                    completion(false)
+                    completion(false); return
+                }
+
+                // ✅ If profile not found, treat as empty profile and keep the prompt up
+                if http.statusCode == 404 {
+                    print("ℹ️ No profile found for user \(email) — treating as empty profile.")
+                    self.userProfile = UserProfile(email: email)
+                    self.needsQuestionnaire = true
+                    UserDefaults.standard.set(true, forKey: self.needsQuestionnaireKey)
+                    self.setShowQuestionnairePrompt(true)
+                    completion(true)
                     return
                 }
-                
+
                 guard http.statusCode == 200,
-                    let data = data,
-                    let jsonObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                      let data = data,
+                      let jsonObj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 else {
                     print("❌ Unexpected status: \(http.statusCode)")
-                    completion(false)
-                    return
+                    completion(false); return
                 }
 
-                // Parse jsonObj into UserProfile 
                 var profile = UserProfile()
-                profile.email = email
-                profile.name                         = jsonObj["name"] as? String ?? ""
-                profile.currentClimbingGrade         = jsonObj["current_climbing_grade"] as? String ?? ""
-                profile.maxBoulderGrade              = jsonObj["max_boulder_grade"] as? String ?? ""
-                profile.goal                         = jsonObj["goal"] as? String ?? ""
-                profile.trainingExperience           = jsonObj["training_experience"] as? String ?? ""
-                profile.perceivedStrengths           = jsonObj["perceived_strengths"] as? String ?? ""
-                profile.perceivedWeaknesses          = jsonObj["perceived_weaknesses"] as? String ?? ""
-                profile.attribute_ratings            = jsonObj["attribute_ratings"] as? String ?? ""
-                profile.weeksToTrain                 = jsonObj["weeks_to_train"] as? String ?? ""
-                profile.sessionsPerWeek              = jsonObj["sessions_per_week"] as? String ?? ""
-                profile.timePerSession               = jsonObj["time_per_session"] as? String ?? ""
-                profile.trainingFacilities           = jsonObj["training_facilities"] as? String ?? ""
-                profile.injuryHistory                = jsonObj["injury_history"] as? String ?? ""
-                profile.generalFitness               = jsonObj["general_fitness"] as? String ?? ""
-                profile.height                       = jsonObj["height"] as? String ?? ""
-                profile.weight                       = jsonObj["weight"] as? String ?? ""
-                profile.age                          = jsonObj["age"] as? String ?? ""
-                profile.preferredClimbingStyle       = jsonObj["preferred_climbing_style"] as? String ?? ""
-                profile.indoorVsOutdoor              = jsonObj["indoor_vs_outdoor"] as? String ?? ""
-                profile.onsightFlashLevel            = jsonObj["onsight_flash_level"] as? String ?? ""
-                profile.redpointingExperience        = jsonObj["redpointing_experience"] as? String ?? ""
-                profile.sleepRecovery                = jsonObj["sleep_recovery"] as? String ?? ""
-                profile.workLifeBalance              = jsonObj["work_life_balance"] as? String ?? ""
-                profile.fearFactors                  = jsonObj["fear_factors"] as? String ?? ""
-                profile.mindfulnessPractices         = jsonObj["mindfulness_practices"] as? String ?? ""
-                profile.motivationLevel              = jsonObj["motivation_level"] as? String ?? ""
-                profile.accessToCoaches              = jsonObj["access_to_coaches"] as? String ?? ""
-                profile.timeForCrossTraining         = jsonObj["time_for_cross_training"] as? String ?? ""
-                profile.additionalNotes              = jsonObj["additional_notes"] as? String ?? ""
+                profile.email                    = email
+                profile.name                     = jsonObj["name"] as? String ?? ""
+                profile.currentClimbingGrade     = jsonObj["current_climbing_grade"] as? String ?? ""
+                profile.maxBoulderGrade          = jsonObj["max_boulder_grade"] as? String ?? ""
+                profile.goal                     = jsonObj["goal"] as? String ?? ""
+                profile.trainingExperience       = jsonObj["training_experience"] as? String ?? ""
+                profile.perceivedStrengths       = jsonObj["perceived_strengths"] as? String ?? ""
+                profile.perceivedWeaknesses      = jsonObj["perceived_weaknesses"] as? String ?? ""
+                profile.attribute_ratings        = jsonObj["attribute_ratings"] as? String ?? ""
+                profile.weeksToTrain             = jsonObj["weeks_to_train"] as? String ?? ""
+                profile.sessionsPerWeek          = jsonObj["sessions_per_week"] as? String ?? ""
+                profile.timePerSession           = jsonObj["time_per_session"] as? String ?? ""
+                profile.trainingFacilities       = jsonObj["training_facilities"] as? String ?? ""
+                profile.injuryHistory            = jsonObj["injury_history"] as? String ?? ""
+                profile.generalFitness           = jsonObj["general_fitness"] as? String ?? ""
+                profile.height                   = jsonObj["height"] as? String ?? ""
+                profile.weight                   = jsonObj["weight"] as? String ?? ""
+                profile.age                      = jsonObj["age"] as? String ?? ""
+                profile.preferredClimbingStyle   = jsonObj["preferred_climbing_style"] as? String ?? ""
+                profile.indoorVsOutdoor          = jsonObj["indoor_vs_outdoor"] as? String ?? ""
+                profile.onsightFlashLevel        = jsonObj["onsight_flash_level"] as? String ?? ""
+                profile.redpointingExperience    = jsonObj["redpointing_experience"] as? String ?? ""
+                profile.sleepRecovery            = jsonObj["sleep_recovery"] as? String ?? ""
+                profile.workLifeBalance          = jsonObj["work_life_balance"] as? String ?? ""
+                profile.fearFactors              = jsonObj["fear_factors"] as? String ?? ""
+                profile.mindfulnessPractices     = jsonObj["mindfulness_practices"] as? String ?? ""
+                profile.motivationLevel          = jsonObj["motivation_level"] as? String ?? ""
+                profile.accessToCoaches          = jsonObj["access_to_coaches"] as? String ?? ""
+                profile.timeForCrossTraining     = jsonObj["time_for_cross_training"] as? String ?? ""
+                profile.additionalNotes          = jsonObj["additional_notes"] as? String ?? ""
 
-                // 4) Save name if present
+                // ✅ Publish immediately for snappier UI
+                self.userProfile = profile
+
                 if !profile.name.isEmpty {
                     self.saveUserNameToDefaults(profile.name)
                 }
 
-                // 5) Compute needsQuestionnaire
+                // Compute completion status
                 let hasBasic = !profile.currentClimbingGrade.isEmpty
                             && !profile.maxBoulderGrade.isEmpty
                             && !profile.goal.isEmpty
-                self.needsQuestionnaire = !hasBasic
-                UserDefaults.standard.set(self.needsQuestionnaire,
-                                          forKey: self.needsQuestionnaireKey)
 
-                // 6) Publish
-                self.userProfile = profile
+                self.needsQuestionnaire = !hasBasic
+                UserDefaults.standard.set(self.needsQuestionnaire, forKey: self.needsQuestionnaireKey)
+
+                // ✅ Close the prompt immediately when complete
+                if hasBasic {
+                    self.setShowQuestionnairePrompt(false)
+                }
+
                 completion(true)
             }
         }
     }
-
     
     // MARK: - Submit Questionnaire (with authentication)
     func submitQuestionnaireAnswers(
@@ -553,10 +568,14 @@ class UserViewModel: ObservableObject {
                 self.needsQuestionnaire = false
                 UserDefaults.standard.set(false, forKey: self.needsQuestionnaireKey)
 
+                // ✅ NEW: Also hide the prompt permanently after success
+                self.setShowQuestionnairePrompt(false)
+
                 completion(true)
             }
         }
     }
+
 
     
     // MARK: - Token Management
@@ -731,6 +750,8 @@ class UserViewModel: ObservableObject {
         clearCredentials()
         UserDefaults.standard.removeObject(forKey: userNameKey)
         UserDefaults.standard.removeObject(forKey: "ascendify_saved_plans")
+        UserDefaults.standard.removeObject(forKey: showQuestionnairePromptKey)
+        self.showQuestionnairePrompt = false
         
         for (key, _) in UserDefaults.standard.dictionaryRepresentation() {
             if key.hasPrefix("cached_projects_") {

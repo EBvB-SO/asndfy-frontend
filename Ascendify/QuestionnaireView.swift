@@ -18,14 +18,14 @@ struct RatedAttribute: Identifiable, Hashable {
 }
 
 /// A single “trainingFacilities” option
-struct trainingFacilitiesOption: Identifiable, Hashable {
+struct TrainingFacilitiesOption: Identifiable, Hashable {
     let id = UUID()
     let name: String
     let category: String
 }
 
 /// A single “generalFitness” option
-struct generalFitnessOption: Identifiable, Hashable {
+struct GeneralFitnessOption: Identifiable, Hashable {
     let id = UUID()
     let name: String
     let category: String
@@ -55,31 +55,31 @@ let attributesToRate = [
 // MARK: – Data for Facilities
 
 /// All available training facilities, each with a “category” string
-let alltrainingFacilitiesllOptions: [trainingFacilitiesOption] = [
+let allTrainingFacilitiesOptions: [TrainingFacilitiesOption] = [
     // Indoor Wall
-    trainingFacilitiesOption(name: "Lead Wall", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Bouldering Wall", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Climbing Board", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Spray Wall", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Circuit Board", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Fingerboard", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Campus Board", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Pull-up Bar", category: "Indoor Wall"),
-    trainingFacilitiesOption(name: "Weights", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Lead Wall", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Bouldering Wall", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Climbing Board", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Spray Wall", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Circuit Board", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Fingerboard", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Campus Board", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Pull-up Bar", category: "Indoor Wall"),
+    TrainingFacilitiesOption(name: "Weights", category: "Indoor Wall"),
     // Home
-    trainingFacilitiesOption(name: "Fingerboard", category: "Home"),
-    trainingFacilitiesOption(name: "Climbing Board", category: "Home"),
-    trainingFacilitiesOption(name: "Weights", category: "Home")
+    TrainingFacilitiesOption(name: "Fingerboard", category: "Home"),
+    TrainingFacilitiesOption(name: "Climbing Board", category: "Home"),
+    TrainingFacilitiesOption(name: "Weights", category: "Home")
 ]
 
 // MARK: – Data for General Fitness
 
-let allGeneralFitnessOptions: [generalFitnessOption] = [
-    generalFitnessOption(name: "Excellent", category: "Fitness Level"),
-    generalFitnessOption(name: "Good", category: "Fitness Level"),
-    generalFitnessOption(name: "Average", category: "Fitness Level"),
-    generalFitnessOption(name: "Below Average", category: "Fitness Level"),
-    generalFitnessOption(name: "Very Poor", category: "Fitness Level")
+let allGeneralFitnessOptions: [GeneralFitnessOption] = [
+    GeneralFitnessOption(name: "Excellent", category: "Fitness Level"),
+    GeneralFitnessOption(name: "Good", category: "Fitness Level"),
+    GeneralFitnessOption(name: "Average", category: "Fitness Level"),
+    GeneralFitnessOption(name: "Below Average", category: "Fitness Level"),
+    GeneralFitnessOption(name: "Very Poor", category: "Fitness Level")
 ]
 
 // MARK: – Data for Climbing Styles
@@ -184,8 +184,8 @@ struct SingleSelectChip: View {
 /// chevron rotates when expanded.
 struct FacilityCategoryView: View {
     let category: String
-    let items: [trainingFacilitiesOption]
-    @Binding var selectedFacilities: [trainingFacilitiesOption]
+    let items: [TrainingFacilitiesOption]
+    @Binding var selectedFacilities: [TrainingFacilitiesOption]
 
     @State private var isExpanded: Bool = false
 
@@ -225,7 +225,7 @@ struct FacilityCategoryView: View {
             .padding(.vertical, 8)
         }
         .background(Color(.systemBackground))
-        .cornerRadius(8)
+        .cornerRadius(12)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .tint(.clear) // hide built-in arrow
@@ -238,11 +238,11 @@ struct FacilityCategoryView: View {
 /// A vertical list of categories; each category expands to show
 /// a grid of facility chips. Uses FacilityCategoryView for each row.
 struct FacilitiesGridView: View {
-    @Binding var selectedFacilities: [trainingFacilitiesOption]
+    @Binding var selectedFacilities: [TrainingFacilitiesOption]
 
     /// Group all facility options by category
-    private var facilitiesByCategory: [String: [trainingFacilitiesOption]] {
-        Dictionary(grouping: alltrainingFacilitiesllOptions, by: \.category)
+    private var facilitiesByCategory: [String: [TrainingFacilitiesOption]] {
+        Dictionary(grouping: allTrainingFacilitiesOptions, by: \.category)
     }
 
     var body: some View {
@@ -264,7 +264,7 @@ struct FacilitiesGridView: View {
 
 /// A single‐select grid for general fitness levels (“Excellent,” “Good,” etc.)
 struct FitnessLevelView: View {
-    @Binding var selectedFitness: [generalFitnessOption]
+    @Binding var selectedFitness: [GeneralFitnessOption]
 
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 10) {
@@ -313,7 +313,7 @@ struct ClimbingStylesGridView: View {
         .padding(.vertical, 8)
         .padding(.horizontal, 8)
         .background(Color(.systemBackground))
-        .cornerRadius(8)
+        .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
     }
 }
@@ -343,7 +343,7 @@ struct QuestionnaireView: View {
     @State private var currentClimbingGrade = ""
     @State private var maxBoulderGrade = ""
     @State private var goal = ""
-    @State private var trainingExperience = ""
+    @State private var trainingExperienceYears = 0 
     @State private var indoorVsOutdoor = ""
     @State private var redpointingExperience = "None"
 
@@ -356,12 +356,12 @@ struct QuestionnaireView: View {
 
     // MARK: – Section 4: Training Setup
 
-    @State private var selectedTrainingFacilities: [trainingFacilitiesOption] = []
+    @State private var selectedTrainingFacilities: [TrainingFacilitiesOption] = []
     @State private var injuryHistory = ""
 
     // MARK: – Section 5: Health & Recovery
 
-    @State private var selectedGeneralFitness: [generalFitnessOption] = []
+    @State private var selectedGeneralFitness: [GeneralFitnessOption] = []
     @State private var selectedSleepHour = "8"
     @State private var workLifeBalance = "Mostly Desk"
     @State private var motivationLevel = "High"
@@ -401,6 +401,20 @@ struct QuestionnaireView: View {
             VStack(spacing: 0) {
                 // Header
                 HeaderView()
+                
+                HStack {
+                    Spacer()
+                    Button("Complete later in Settings") {
+                        // keep needsQuestionnaire = true, just stop auto-presenting the sheet
+                        userViewModel.setShowQuestionnairePrompt(false)
+                        dismiss()
+                    }
+                    .font(.footnote)
+                    .foregroundColor(.tealBlue)
+                    .padding(.trailing, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+                }
                 
                 // Title + page count
                 HStack {
@@ -450,7 +464,9 @@ struct QuestionnaireView: View {
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
                                 .keyboardType(.emailAddress)
                                 .autocapitalization(.none)
-                                .disableAutocorrection(true) // spelled correctly
+                                .disableAutocorrection(true)
+                                .disabled(true)
+                                .opacity(0.7)
                                 .padding(.horizontal, 0)
                                 .background(Color(.systemBackground))
                                 .cornerRadius(12)
@@ -548,26 +564,26 @@ struct QuestionnaireView: View {
                             }
                             
                             Group {
-                                Text("Training Experience")
+                                Text("Years of Structured Training")
                                     .font(.headline)
-                                
-                                TextEditor(text: $trainingExperience)
-                                    .frame(height: 100)
-                                    .padding(4)
-                                    .background(Color(.systemBackground))
-                                    .cornerRadius(12)
-                                    .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                                    )
-                                
+
+                                Picker("Years", selection: $trainingExperienceYears) {
+                                    ForEach(0...40, id: \.self) { y in
+                                        Text("\(y) year\(y == 1 ? "" : "s")").tag(y)
+                                    }
+                                }
+                                .pickerStyle(WheelPickerStyle())
+                                .frame(height: 120) // was 100
+                                .background(Color(.systemBackground))
+                                .cornerRadius(12)
+                                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+
                                 Text("Indoor vs Outdoor Preference")
                                     .font(.headline)
-                                
+
                                 TextEditor(text: $indoorVsOutdoor)
                                     .frame(height: 80)
-                                    .padding(4)
+                                    .padding(8)
                                     .background(Color(.systemBackground))
                                     .cornerRadius(12)
                                     .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
@@ -575,10 +591,10 @@ struct QuestionnaireView: View {
                                         RoundedRectangle(cornerRadius: 12)
                                             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                                     )
-                                
+
                                 Text("Redpointing Experience")
                                     .font(.headline)
-                                
+
                                 Picker("Level", selection: $redpointingExperience) {
                                     ForEach(redpointingMenu, id: \.self) { level in
                                         Text(level).tag(level)
@@ -587,7 +603,6 @@ struct QuestionnaireView: View {
                                 .pickerStyle(SegmentedPickerStyle())
                                 .padding(.vertical, 6)
                             }
-                            
                             NavigationButtonGroup(currentPage: $currentPage, maxPage: sectionTitles.count)
                         }
                         .padding()
@@ -853,11 +868,11 @@ struct QuestionnaireView: View {
                                         .foregroundColor(.white)
                                         .frame(maxWidth: .infinity)
                                         .padding()
-                                        .background(Color.ascendGreen)
+                                        .background(isSubmitEnabled ? Color.ascendGreen : Color.gray.opacity(0.6))
                                         .cornerRadius(12)
                                 }
                             }
-                            .disabled(isLoading)
+                            .disabled(!isSubmitEnabled)
                             .padding(.vertical)
                             
                             NavigationButton(
@@ -911,7 +926,9 @@ struct QuestionnaireView: View {
             currentClimbingGrade = profile.currentClimbingGrade
             maxBoulderGrade = profile.maxBoulderGrade
             goal = profile.goal
-            trainingExperience = profile.trainingExperience
+            let digitsOnly = profile.trainingExperience.filter { $0.isNumber }
+            trainingExperienceYears = Int(digitsOnly) ?? 0
+
 
             // Legacy support: Populate ratedAttributes from perceived strengths/weaknesses
             if !profile.perceivedStrengths.isEmpty || !profile.perceivedWeaknesses.isEmpty {
@@ -939,7 +956,7 @@ struct QuestionnaireView: View {
             let oldFacilities = profile.trainingFacilities
                 .split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespaces) }
-            selectedTrainingFacilities = alltrainingFacilitiesllOptions
+            selectedTrainingFacilities = allTrainingFacilitiesOptions
                 .filter { oldFacilities.contains($0.name) }
 
             let oldFitness = profile.generalFitness
@@ -1014,7 +1031,7 @@ struct QuestionnaireView: View {
             "current_climbing_grade": currentClimbingGrade,
             "max_boulder_grade": maxBoulderGrade,
             "goal": goal,
-            "training_experience": trainingExperience,
+            "training_experience": String(trainingExperienceYears),
 
             // Backward-compatibility fields
             "perceived_strengths": strengthString,
@@ -1049,7 +1066,7 @@ struct QuestionnaireView: View {
                     profile.currentClimbingGrade = currentClimbingGrade
                     profile.maxBoulderGrade = maxBoulderGrade
                     profile.goal = goal
-                    profile.trainingExperience = trainingExperience
+                    profile.trainingExperience = String(trainingExperienceYears)
                     profile.perceivedStrengths = strengthString
                     profile.perceivedWeaknesses = weaknessString
 
@@ -1073,6 +1090,7 @@ struct QuestionnaireView: View {
                 }
 
                 userViewModel.needsQuestionnaire = false
+                userViewModel.setShowQuestionnairePrompt(false)
                 dismiss()
             } else {
                 errorMessage = "Failed to save questionnaire. Please try again."
@@ -1082,6 +1100,14 @@ struct QuestionnaireView: View {
 
     // ======================================================
     // MARK: – Helper Subviews (Still inside QuestionnaireView)
+    
+    /// Only save when complete
+    private var isSubmitEnabled: Bool {
+        !currentClimbingGrade.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !maxBoulderGrade.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !isLoading
+    }
 
     /// Enhanced slider view for rating abilities
     struct AttributeRatingView: View {
@@ -1143,7 +1169,7 @@ struct QuestionnaireView: View {
                     .bold()
                     .foregroundColor(.deepPurple)
             }
-            .padding(.bottom, 10)
+            .padding(.bottom, 8)
         }
     }
 

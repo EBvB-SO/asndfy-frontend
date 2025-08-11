@@ -155,9 +155,9 @@ struct SignUpView: View {
                         profile.name = name
                         profile.email = email
                         userViewModel.userProfile = profile
-                        
-                        // Mark that we still need to fill out the questionnaire
-                        userViewModel.needsQuestionnaire = true
+                            // mark that profile data is needed
+                            userViewModel.needsQuestionnaire = true
+                            userViewModel.setShowQuestionnairePrompt(true)
                         
                         // Optionally fetch any initial plans for the new user
                         GeneratedPlansManager.shared.clearPlans()

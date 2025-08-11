@@ -47,6 +47,11 @@ struct AscendifyApp: App {
                 }
             }
             .environmentObject(userViewModel)
+            .fullScreenCover(isPresented: $userViewModel.showQuestionnairePrompt) {
+                // QuestionnaireView is shown modally; user can complete or skip
+                QuestionnaireView()
+                    .environmentObject(userViewModel)
+            }
             // Handle app lifecycle for data persistence
             .onReceive(
                 NotificationCenter.default.publisher(

@@ -9,6 +9,7 @@ import SwiftUI
 import UIKit
 
 struct PlansView: View {
+    @EnvironmentObject var userViewModel: UserViewModel
     @ObservedObject var plansManager = GeneratedPlansManager.shared
     @State private var showGenerateSheet = false
     @State private var selectedPlan: PlanWrapper? = nil
@@ -79,20 +80,20 @@ struct PlansView: View {
             Button("Delete", role: .destructive) {
                 // Haptic feedback
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-
+                
                 guard let indexSet = planIndicesToDelete else { return }
-
+                
                 // Capture IDs so we can close the overlay if its plan was deleted
                 let idsToDelete: [UUID] = indexSet.compactMap { idx in
                     plansManager.plans.indices.contains(idx) ? plansManager.plans[idx].id : nil
                 }
-
+                
                 Task {
                     // Delete in reverse order to avoid reindexing issues
                     for index in indexSet.sorted(by: >) {
                         await plansManager.deletePlanEverywhere(at: index)
                     }
-
+                    
                     // Close the detail overlay if its plan was deleted
                     if let selected = selectedPlan, idsToDelete.contains(selected.id) {
                         await MainActor.run {
@@ -102,7 +103,7 @@ struct PlansView: View {
                             }
                         }
                     }
-
+                    
                     // Reset stored indices
                     await MainActor.run {
                         planIndicesToDelete = nil
@@ -176,17 +177,38 @@ struct PlansView: View {
     }
     
     // MARK: - Generate Button
+    @ViewBuilder
     private var generateButton: some View {
-        Button {
-            showGenerateSheet = true
-        } label: {
-            Text("Generate New Plan")
-                .foregroundColor(.offWhite)
+        if userViewModel.needsQuestionnaire {
+            VStack(alignment: .center, spacing: 8) {
+                Text("Complete your profile questionnaire to generate a training plan")
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.gray)
+                    .padding(.horizontal)
+                Button("Complete Questionnaire Now") {
+                    // show the questionnaire sheet
+                    userViewModel.setShowQuestionnairePrompt(true)
+                }
+                .foregroundColor(.white)
                 .padding()
-                .frame(maxWidth: .infinity)
                 .background(Color.ascendGreen)
                 .cornerRadius(8)
-                .padding()
+            }
+            .padding()
+        } else {
+            // existing Generate New Plan button
+            Button {
+                showGenerateSheet = true
+            } label: {
+                Text("Generate New Plan")
+                    .foregroundColor(.offWhite)
+                    .padding()
+                    .frame(maxWidth: .infinity)
+                    .background(Color.ascendGreen)
+                    .cornerRadius(8)
+                    .padding()
+            }
         }
     }
 }
