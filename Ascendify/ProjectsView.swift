@@ -77,21 +77,7 @@ struct ProjectsView: View {
                     }
                     #endif
                 } else if projectsManager.projects.isEmpty {
-                    VStack(alignment: .center, spacing: 20) {
-                        Spacer()
-                        Text("No Projects Yet")
-                            .font(.headline)
-                            .foregroundColor(.gray)
-                        
-                        Text("Add a climbing project to keep track of your progress")
-                            .font(.subheadline)
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                        
-                        Spacer()
-                    }
-                    .padding(.top)
+                    emptyStateView
                 } else {
                     projectsList
                 }
@@ -186,6 +172,31 @@ struct ProjectsView: View {
             }
             #endif
         }
+    }
+    
+    // MARK: - Empty State
+    private var emptyStateView: some View {
+        VStack(alignment: .center, spacing: 20) {
+            Spacer()
+            
+            Image(systemName: "flag.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.gray.opacity(0.6))
+                .padding(.bottom, 10)
+            
+            Text("No Projects Yet")
+                .font(.headline)
+                .foregroundColor(.gray)
+            
+            Text("Add a climbing project to keep track of your progress")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            Spacer()
+        }
+        .padding(.top)
     }
     
     // Extract projects list view to avoid repetition

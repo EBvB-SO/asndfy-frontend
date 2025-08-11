@@ -47,7 +47,7 @@ struct GeneratePlanView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                HeaderView()  // custom SwiftUI header
+                HeaderView()  // custom SwiftUI headertruct ProjectsView
                 
                 ScrollView {
                     VStack(spacing: 20) {

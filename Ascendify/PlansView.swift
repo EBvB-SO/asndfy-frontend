@@ -81,7 +81,7 @@ struct PlansView: View {
                 .font(.headline)
                 .foregroundColor(.gray)
             
-            Text("Generate a personalized training plan for your climbing projects")
+            Text("Generate a personalised training plan for your climbing projects")
                 .font(.subheadline)
                 .foregroundColor(.gray)
                 .multilineTextAlignment(.center)
