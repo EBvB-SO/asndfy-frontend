@@ -352,7 +352,7 @@ struct WeekView: View {
 
             if expandedWeeks.contains(weekIndex) {
                 VStack(spacing: 8) {
-                    ForEach(week.sessions, id: \.sessionTitle) { sess in
+                    ForEach(Array(week.sessions.enumerated()), id: \.offset) { _, sess in
                         SessionView(
                             session: sess,
                             expandedSessions: $expandedSessions,
@@ -476,7 +476,7 @@ struct SessionView: View {
                 }
             } else if let only = session.mainWorkout.first {
                 let parts = splitTitle(only.title)
-                ForEach(parts, id: \.self) { part in
+                ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                     ExerciseView(
                         exercise: PlanExercise(
                             type: inferType(from: part),
@@ -530,7 +530,7 @@ struct SessionSectionView: View {
                 .font(.headline)
                 .foregroundColor(.deepPurple)
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(items, id: \.self) { item in
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .top) {
                         Image(systemName: iconName)
                             .foregroundColor(iconColor)
