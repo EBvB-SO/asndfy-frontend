@@ -121,18 +121,20 @@ struct PlanExercise: Codable, Hashable, Identifiable {
 /// A local wrapper if you want to store route info + PlanModel together
 struct PlanWrapper: Identifiable, Hashable, Codable {
     let id: UUID
+    let serverId: String?
     let routeName: String
     let grade: String
     let plan: PlanModel
 
-    init(routeName: String, grade: String, plan: PlanModel) {
+    init(serverId: String? = nil, routeName: String, grade: String, plan: PlanModel) {
         self.id = UUID()
+        self.serverId = serverId
         self.routeName = routeName
         self.grade = grade
         self.plan = plan
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, routeName, grade, plan
+        case id, serverId, routeName, grade, plan
     }
 }

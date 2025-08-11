@@ -12,6 +12,10 @@ struct ProjectDetailView: View {
     var project: ProjectModel
     @StateObject private var projectsManager = ProjectsManager.shared
     @State private var showAddLogSheet = false
+    @State private var entryToDelete: LogEntry? = nil
+    @State private var showDeleteAlert = false
+    @State private var entryToEdit: LogEntry? = nil
+    @State private var showEditSheet = false
     @Environment(\.dismiss) private var dismiss
     
     // Add state to force UI updates
@@ -57,6 +61,33 @@ struct ProjectDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                Text(updatedProject.route_name.isEmpty ? "Unnamed Route" : updatedProject.route_name)
+                    .font(.largeTitle)
+                    .bold()
+                    .foregroundColor(.primary)
+                    .padding(.horizontal)
+                    .padding(.top, 6)
+                
+                // Grade & Crag directly below the title
+                HStack {
+                    Text("Grade: \(project.grade)")
+                        .font(.headline)
+                        .foregroundColor(.tealBlue)
+
+                    Spacer()
+
+                    Text("Crag: \(project.crag)")
+                        .font(.headline)
+                        .foregroundColor(.tealBlue)
+
+                    if updatedProject.isCompleted {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(.ascendGreen)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 4)
+                
                 // Style badges - all three categories
                 VStack(spacing: 8) {
                     // Route Angle Badge
@@ -125,24 +156,6 @@ struct ProjectDetailView: View {
                 .padding(.horizontal)
                 .padding(.top, 10)
                 
-                HStack {
-                    Text("Grade: \(project.grade)")
-                        .font(.headline)
-                        .foregroundColor(.tealBlue)
-                    
-                    Spacer()
-                    
-                    Text("Crag: \(project.crag)")
-                        .font(.headline)
-                        .foregroundColor(.tealBlue)
-                    
-                    if updatedProject.isCompleted {
-                        Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(.ascendGreen)
-                    }
-                }
-                .padding(.horizontal)
-                
                 if !project.description.isEmpty {
                     Text("Description:")
                         .font(.headline)
@@ -168,12 +181,10 @@ struct ProjectDetailView: View {
                 if !updatedProject.isCompleted {
                     Button(action: {
                         Task {
-                            print("Attempting to mark project as sent: \(project.id)")
                             await projectsManager.toggleProjectCompletion(
-                                projectId: project.id.lowercased(),  // Pass ID directly as String
+                                projectId: project.id.lowercased(),
                                 isCompleted: true
                             )
-                            // Force UI update
                             viewRefreshTrigger = UUID()
                         }
                     }) {
@@ -189,16 +200,12 @@ struct ProjectDetailView: View {
                     }
                     .padding(.horizontal)
                 } else {
-                    // Similar pattern for the Undo button - reuse the pattern above
                     Button(action: {
                         Task {
-                            print("Attempting to mark project as not sent: \(project.id)")
-                            // Pass project.id directly as String - no UUID conversion
                             await projectsManager.toggleProjectCompletion(
                                 projectId: project.id.lowercased(),
                                 isCompleted: false
                             )
-                            // Force UI update
                             viewRefreshTrigger = UUID()
                         }
                     }) {
@@ -225,7 +232,6 @@ struct ProjectDetailView: View {
                     .foregroundColor(.deepPurple)
                     .padding(.horizontal)
                 
-                // Debug print to verify logs
                 let _ = print("ProjectDetailView: Project has \(updatedProject.logEntries.count) log entries")
                 
                 if updatedProject.logEntries.isEmpty {
@@ -235,11 +241,28 @@ struct ProjectDetailView: View {
                         .padding(.horizontal)
                         .padding(.vertical, 10)
                 } else {
-                    // Display logs in a list with swipe-to-delete
                     VStack(spacing: 8) {
                         ForEach(updatedProject.logEntries.sorted(by: { $0.date > $1.date })) { entry in
-                            LogEntryView(entry: entry)
-                                .padding(.horizontal)
+                            LogEntryView(entry: entry) { tappedEntry in
+                                entryToEdit = tappedEntry
+                                showEditSheet = true
+                            }
+                            .padding(.horizontal)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    entryToDelete = entry
+                                    showDeleteAlert = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    entryToEdit = entry
+                                    showEditSheet = true
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
+                            }
                         }
                     }
                     .padding(.vertical, 8)
@@ -263,33 +286,42 @@ struct ProjectDetailView: View {
                 .padding()
         }
         .sheet(isPresented: $showAddLogSheet, onDismiss: {
-            // After sheet is dismissed, reload project data
-            Task {
-                await refreshProjectData()
-            }
+            Task { await refreshProjectData() }
         }) {
             AddLogEntryView(projectId: project.id)
-            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LogEntryAdded"))) { _ in
-                    print("ProjectDetailView received LogEntryAdded notification")
+            Task { await refreshProjectData() }
+        }
+        .onAppear {
+            UserViewModel.shared.debugJWTToken()
+            Task {
+                await projectsManager.safelyLoadProjectDetails(projectId: project.id.lowercased())
+            }
+        }
+        .id("project-detail-\(project.id)-\(viewRefreshTrigger)")
+        
+        // Alert & Edit Sheet
+        .alert("Delete Log Entry", isPresented: $showDeleteAlert, presenting: entryToDelete) { entry in
+            Button("Delete", role: .destructive) {
+                if let idx = updatedProject.logEntries.firstIndex(where: { $0.id == entry.id }) {
                     Task {
+                        await projectsManager.deleteLogEntry(from: project.id, at: idx)
                         await refreshProjectData()
-                }
-                }
-                .onAppear {
-                    print("ProjectDetailView appeared for project: \(project.id)")
-                    
-                    // ADD THIS DEBUG CALL:
-                    UserViewModel.shared.debugJWTToken()
-                    
-                    // Initial loading
-                    Task {
-                        await projectsManager.safelyLoadProjectDetails(projectId: project.id.lowercased())
                     }
                 }
-                // Keep a stable ID for this view that updates when data changes
-                .id("project-detail-\(project.id)-\(viewRefreshTrigger)")
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: { _ in
+            Text("Are you sure you want to delete this log entry?")
+        }
+        .sheet(isPresented: $showEditSheet) {
+            if let entry = entryToEdit {
+                EditLogEntryView(projectId: project.id, logEntry: entry)
+            }
+        }
     }
+
     
     private var dateFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -301,12 +333,12 @@ struct ProjectDetailView: View {
 // Helper view for displaying a log entry
 struct LogEntryView: View {
     var entry: LogEntry
+    var onEdit: ((LogEntry) -> Void)? = nil
+
     @State private var showFullEntry = false
     
     var body: some View {
-        Button(action: {
-            showFullEntry = true
-        }) {
+        Button(action: { showFullEntry = true }) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(formattedDate)
@@ -315,7 +347,6 @@ struct LogEntryView: View {
                     
                     Spacer()
                     
-                    // Show mood icon if available
                     if let mood = entry.mood {
                         Image(systemName: mood.iconName)
                             .foregroundColor(mood.color)
@@ -335,7 +366,11 @@ struct LogEntryView: View {
         }
         .buttonStyle(PlainButtonStyle())
         .sheet(isPresented: $showFullEntry) {
-            FullLogEntryView(entry: entry)
+            FullLogEntryView(entry: entry) {
+                // Close the viewer and tell the parent to open the editor
+                showFullEntry = false
+                onEdit?(entry)
+            }
         }
     }
     
@@ -346,9 +381,11 @@ struct LogEntryView: View {
     }
 }
 
+
 // View for displaying the full log entry in a sheet
 struct FullLogEntryView: View {
     var entry: LogEntry
+    var onEdit: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
@@ -362,7 +399,6 @@ struct FullLogEntryView: View {
                         
                         Spacer()
                         
-                        // Show mood if available
                         if let mood = entry.mood {
                             HStack {
                                 Image(systemName: mood.iconName)
@@ -372,8 +408,7 @@ struct FullLogEntryView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                             .background(
-                                Capsule()
-                                    .fill(mood.color.opacity(0.2))
+                                Capsule().fill(mood.color.opacity(0.2))
                             )
                         }
                     }
@@ -386,9 +421,20 @@ struct FullLogEntryView: View {
                 .padding()
             }
             .navigationBarTitle("Log Entry", displayMode: .inline)
-            .navigationBarItems(trailing: Button("Done") {
-                dismiss()
-            })
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        dismiss()
+                        onEdit?()
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .accessibilityLabel("Edit")
+                }
+            }
         }
     }
     
@@ -398,3 +444,4 @@ struct FullLogEntryView: View {
         return formatter.string(from: entry.dateObject)
     }
 }
+

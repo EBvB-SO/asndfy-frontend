@@ -118,6 +118,7 @@ class GeneratedPlansManager: ObservableObject {
                         weeks: serverPlan.phases
                     )
                     return PlanWrapper(
+                        serverId: serverPlan.id,            // <— keep the server ID!
                         routeName: serverPlan.route_name,
                         grade: serverPlan.grade,
                         plan: planModel
@@ -251,6 +252,32 @@ class GeneratedPlansManager: ObservableObject {
     func refreshPlans() async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
         await fetchPlansFromServerAsync(email: email)
+    }
+}
+
+extension GeneratedPlansManager {
+    /// Delete a plan both locally and on the server (if it has a serverId).
+    @MainActor
+    func deletePlanEverywhere(at index: Int) async {
+        guard plans.indices.contains(index) else { return }
+
+        // Capture before remove
+        let wrapper = plans[index]
+        let sid = wrapper.serverId
+
+        // Remove locally first for snappy UI
+        plans.remove(at: index)
+        savePlansToStorage()
+
+        // Try server delete (best-effort)
+        if let sid {
+            do {
+                try await deletePlanFromServer(planId: sid)
+            } catch {
+                print("⚠️ Server delete failed for plan \(sid): \(error.localizedDescription)")
+                // Optional: add UI error surface if you want
+            }
+        }
     }
 }
 

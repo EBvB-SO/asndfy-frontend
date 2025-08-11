@@ -6,12 +6,15 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct PlansView: View {
     @ObservedObject var plansManager = GeneratedPlansManager.shared
     @State private var showGenerateSheet = false
     @State private var selectedPlan: PlanWrapper? = nil
     @State private var showPlanDetail = false
+    @State private var planIndicesToDelete: IndexSet? = nil
+    @State private var showPlanDeleteAlert = false
     
     var body: some View {
         ZStack {
@@ -47,17 +50,70 @@ struct PlansView: View {
             
             // Plan detail overlay
             if showPlanDetail, let plan = selectedPlan {
+                // Dim background
                 Color.black.opacity(0.3)
                     .ignoresSafeArea()
-                    .transition(.opacity)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.animation(.easeIn(duration: 0.30)),
+                            removal:  .opacity.animation(.easeOut(duration: 0.20))
+                        )
+                    )
                 
+                // Panel with asymmetric timing
                 PlanDetailViewWrapper(planWrapper: plan, isPresented: $showPlanDetail)
-                    .transition(.move(edge: .trailing))
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .trailing).animation(.easeInOut(duration: 0.35)),
+                            removal:  .move(edge: .trailing).animation(.easeInOut(duration: 0.25))
+                        )
+                    )
             }
+            
         }
         .animation(.easeInOut, value: showPlanDetail)
         .sheet(isPresented: $showGenerateSheet) {
             GeneratePlanView()
+        }
+        .alert("Delete Training Plan?", isPresented: $showPlanDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                // Haptic feedback
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+                guard let indexSet = planIndicesToDelete else { return }
+
+                // Capture IDs so we can close the overlay if its plan was deleted
+                let idsToDelete: [UUID] = indexSet.compactMap { idx in
+                    plansManager.plans.indices.contains(idx) ? plansManager.plans[idx].id : nil
+                }
+
+                Task {
+                    // Delete in reverse order to avoid reindexing issues
+                    for index in indexSet.sorted(by: >) {
+                        await plansManager.deletePlanEverywhere(at: index)
+                    }
+
+                    // Close the detail overlay if its plan was deleted
+                    if let selected = selectedPlan, idsToDelete.contains(selected.id) {
+                        await MainActor.run {
+                            withAnimation(.easeInOut) {
+                                showPlanDetail = false
+                                selectedPlan = nil
+                            }
+                        }
+                    }
+
+                    // Reset stored indices
+                    await MainActor.run {
+                        planIndicesToDelete = nil
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                planIndicesToDelete = nil
+            }
+        } message: {
+            Text("This will permanently remove the training plan. Are you sure?")
         }
         .refreshable {
             await plansManager.refreshPlans()
@@ -97,8 +153,11 @@ struct PlansView: View {
         List {
             ForEach(plansManager.plans) { planWrapper in
                 Button {
-                    selectedPlan = planWrapper
-                    showPlanDetail = true
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        selectedPlan = planWrapper
+                        showPlanDetail = true
+                    }
                 } label: {
                     PlanRowView(planWrapper: planWrapper)
                 }
@@ -107,9 +166,13 @@ struct PlansView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
             }
-            .onDelete(perform: deletePlans)
+            .onDelete { indexSet in
+                planIndicesToDelete = indexSet
+                showPlanDeleteAlert = true
+            }
         }
         .listStyle(PlainListStyle())
+        .disabled(showPlanDetail)
     }
     
     // MARK: - Generate Button
@@ -126,15 +189,8 @@ struct PlansView: View {
                 .padding()
         }
     }
-    
-    // MARK: - Helper Functions
-    func deletePlans(at offsets: IndexSet) {
-        for index in offsets {
-            plansManager.deletePlan(at: index)
-        }
-    }
 }
-
+    
 // MARK: - Plan Row View
 struct PlanRowView: View {
     let planWrapper: PlanWrapper

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct ProjectsView: View {
     @ObservedObject var projectsManager = ProjectsManager.shared
@@ -16,6 +17,8 @@ struct ProjectsView: View {
     @State private var showForceLoginAlert = false
     @State private var selectedProject: ProjectModel? = nil
     @State private var showProjectDetail = false
+    @State private var projectIndicesToDelete: IndexSet? = nil
+    @State private var showProjectDeleteAlert = false
     
     var body: some View {
         ZStack {
@@ -103,12 +106,24 @@ struct ProjectsView: View {
             
             // Conditionally show project detail as an overlay
             if showProjectDetail, let project = selectedProject {
+                // Background dim — slower on entry, faster on exit
                 Color.black.opacity(0.3)
                     .ignoresSafeArea()
-                    .transition(.opacity)
-                
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.animation(.easeIn(duration: 0.30)),
+                            removal:  .opacity.animation(.easeOut(duration: 0.20))
+                        )
+                    )
+
+                // Panel — slower on entry, snappier on exit
                 ProjectDetailViewWrapper(project: project, isPresented: $showProjectDetail)
-                    .transition(.move(edge: .trailing))
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .trailing).animation(.easeInOut(duration: 0.35)),
+                            removal:  .move(edge: .trailing).animation(.easeInOut(duration: 0.25))
+                        )
+                    )
             }
             
             // Add the error banner on top of everything else, if there's an error
@@ -153,24 +168,52 @@ struct ProjectsView: View {
         } message: {
             Text("There seems to be an issue with your authentication. Would you like to try refreshing your login state?")
         }
-        .onAppear {
-            print("ProjectsView appeared - checking auth status")
-            
+        .task {
+            print("ProjectsView task – loading projects & checking auth")
             ProjectsManager.shared.debugTokenInfo()
             ProjectsManager.shared.debugAuthTest()
-            
-            // Don't attempt to load projects in preview
-            #if DEBUG
-            if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" {
+            await projectsManager.loadProjects()
+        }
+        .alert("Delete Project?", isPresented: $showProjectDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                // Haptic feedback
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+
+                guard let indexSet = projectIndicesToDelete else { return }
+
+                // Capture the IDs we intend to delete (for safely closing the detail view)
+                let idsToDelete: [String] = indexSet.compactMap { idx in
+                    projectsManager.projects.indices.contains(idx) ? projectsManager.projects[idx].id : nil
+                }
+
                 Task {
-                    await projectsManager.loadProjects()
+                    // Delete in descending index order to avoid reindexing issues
+                    for index in indexSet.sorted(by: >) {
+                        await projectsManager.deleteProject(at: index)
+                    }
+
+                    // If the currently shown project was deleted, close the overlay with animation
+                    if let selected = selectedProject, idsToDelete.contains(selected.id) {
+                        await MainActor.run {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                showProjectDetail = false
+                                selectedProject = nil
+                            }
+                        }
+                    }
+
+                    // Tidy up the stored indices
+                    await MainActor.run {
+                        projectIndicesToDelete = nil
+                    }
                 }
             }
-            #else
-            Task {
-                await projectsManager.loadProjects()
+            Button("Cancel", role: .cancel) {
+                // Clean up in case user cancels
+                projectIndicesToDelete = nil
             }
-            #endif
+        } message: {
+            Text("Are you sure you want to delete this project? All its logs will be removed.")
         }
     }
     
@@ -204,8 +247,13 @@ struct ProjectsView: View {
         List {
             ForEach(projectsManager.projects) { project in
                 Button {
-                    selectedProject = project
-                    showProjectDetail = true
+                    // Light tap haptic when opening details
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+                    withAnimation(.easeInOut(duration: 0.35)) {
+                        selectedProject = project
+                        showProjectDetail = true
+                    }
                 } label: {
                     ProjectRowView(project: project)
                 }
@@ -215,10 +263,12 @@ struct ProjectsView: View {
                 .padding(.vertical, 5)
             }
             .onDelete { indexSet in
-                deleteProjects(at: indexSet)
+                projectIndicesToDelete = indexSet
+                showProjectDeleteAlert = true
             }
         }
         .listStyle(PlainListStyle())
+        .disabled(showProjectDetail)
     }
     
     // Function to handle swipe-to-delete action

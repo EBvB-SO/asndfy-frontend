@@ -502,7 +502,41 @@ class ProjectsManager: ObservableObject {
         }
         isLoading = false
     }
+    
+    @MainActor
+    func updateLogEntry(for projectId: String, logId: String,
+                        newDate: Date, newContent: String, newMood: MoodRating?) async {
+        isLoading = true
+        error = nil
 
+        let url = URL(string: "\(baseURL)/projects/logs/\(logId.lowercased())")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.addAuthHeader()
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Prepare the body; only include fields the user might have changed
+        let bodyDict: [String: Any?] = [
+            "date": ISO8601DateFormatter().string(from: newDate),
+            "content": newContent,
+            "mood": newMood?.rawValue
+        ]
+        // Remove nil values before encoding
+        let filtered = bodyDict.compactMapValues { $0 }
+        request.httpBody = try? JSONSerialization.data(withJSONObject: filtered)
+
+        do {
+            let (data, response) = try await URLSession.shared.authenticatedData(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw NetworkError.invalidResponse
+            }
+            // Reload project details on success
+            await loadProjects()
+        } catch {
+            self.error = "Failed to update log entry: \(error.localizedDescription)"
+        }
+        isLoading = false
+    }
     
     @MainActor
     func toggleProjectCompletion(projectId: String, isCompleted: Bool) async {
