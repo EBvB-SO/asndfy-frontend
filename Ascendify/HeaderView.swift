@@ -27,9 +27,3 @@ struct HeaderView: View {
             .fixedSize(horizontal: false, vertical: true)
         }
     }
-
-struct HeaderView_Previews: PreviewProvider {
-    static var previews: some View {
-        HeaderView()
-    }
-}
