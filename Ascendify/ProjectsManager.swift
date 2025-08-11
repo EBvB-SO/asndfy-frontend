@@ -235,8 +235,10 @@ class ProjectsManager: ObservableObject {
             self.lastUpdated = Date()
 
             // 4. Cache the *array* (not the envelope) for offline use
+            let cacheKey = "cached_projects_\(email.lowercased())"
+            
             let cache = try JSONEncoder().encode(self.projects)
-            UserDefaults.standard.set(cache, forKey: "cached_projects")
+            UserDefaults.standard.set(cache, forKey: cacheKey)
 
         } catch NetworkError.notFound {
             // 404 – user simply has no projects
@@ -251,7 +253,9 @@ class ProjectsManager: ObservableObject {
             print("ProjectsManager.loadProjects ERROR: \(error)")
 
             // Try cache fallback
-            if let cachedData = UserDefaults.standard.data(forKey: "cached_projects"),
+            let cacheKey = "cached_projects_\(email.lowercased())"
+            
+            if let cachedData = UserDefaults.standard.data(forKey: cacheKey),
                let cached = try? JSONDecoder().decode([ProjectModel].self, from: cachedData) {
                 self.projects = cached
                 self.lastUpdated = Date()

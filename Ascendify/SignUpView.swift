@@ -146,31 +146,35 @@ struct SignUpView: View {
             isLoading = false
             
             if success {
-                GeneratedPlansManager.shared.clearPlans()
-                GeneratedPlansManager.shared.fetchPlansFromServer(email: email)
-                // Create local profile
-                var profile = UserProfile()
-                profile.name = name
-                profile.email = email
-                userViewModel.userProfile = profile
-                
-                // Mark user as signed in
-                userViewModel.isSignedIn = true
-                userViewModel.needsQuestionnaire = true
-                
-                print("Sign up succeeded, user is now signed in")
+                // ✅ Remove the manual isSignedIn assignment.
+                // Instead, immediately sign in to obtain an access token.
+                userViewModel.signIn(email: email, password: password) { signedIn, signInError in
+                    if signedIn {
+                        // Create local profile
+                        var profile = UserProfile()
+                        profile.name = name
+                        profile.email = email
+                        userViewModel.userProfile = profile
+                        
+                        // Mark that we still need to fill out the questionnaire
+                        userViewModel.needsQuestionnaire = true
+                        
+                        // Optionally fetch any initial plans for the new user
+                        GeneratedPlansManager.shared.clearPlans()
+                        GeneratedPlansManager.shared.fetchPlansFromServer(email: email)
+                        
+                        print("✅ Sign‑up and auto sign‑in succeeded")
+                    } else {
+                        // If sign‑in fails, surface the error
+                        errorMessage = signInError ?? "Failed to sign in after sign up"
+                        print("❌ Auto sign‑in failed: \(errorMessage ?? "")")
+                    }
+                }
             } else {
                 // Show the error
                 errorMessage = error ?? "Failed to create account"
                 print("Sign up failed: \(errorMessage ?? "Unknown error")")
             }
         }
-    }
-}
-
-struct SignUpView_Previews: PreviewProvider {
-    static var previews: some View {
-        SignUpView()
-            .environmentObject(UserViewModel())
     }
 }

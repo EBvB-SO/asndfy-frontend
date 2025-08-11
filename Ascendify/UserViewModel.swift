@@ -732,6 +732,12 @@ class UserViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: userNameKey)
         UserDefaults.standard.removeObject(forKey: "ascendify_saved_plans")
         
+        for (key, _) in UserDefaults.standard.dictionaryRepresentation() {
+            if key.hasPrefix("cached_projects_") {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        
         SessionTrackingManager.shared.clearForSignOut()
         DiaryManager.shared.clearForSignOut()
         
