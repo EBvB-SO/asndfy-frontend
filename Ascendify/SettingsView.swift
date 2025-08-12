@@ -9,23 +9,23 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var userViewModel: UserViewModel
-    
+
     @State private var showLegalPrivacy = false
     @State private var showDeleteConfirmation = false
     @State private var showDeleteSuccess = false
     @State private var showDeleteError = false
     @State private var deleteErrorMessage = ""
-    
-    // ADDED: State for showing questionnaire
+
+    // Show questionnaire as a sheet
     @State private var showQuestionnaireSheet = false
-    
+
     var body: some View {
         VStack(spacing: 0) {
-            // Custom header instead of navigation title
+            // Branded gradient header (no system nav bar)
             HeaderView()
-            
+
             Form {
-                // ADDED: New section for Profile & Data
+                // MARK: - Profile & Data
                 Section(header:
                     Text("PROFILE & DATA")
                         .font(.caption)
@@ -39,7 +39,8 @@ struct SettingsView: View {
                             .foregroundColor(.deepPurple)
                     }
                 }
-                
+
+                // MARK: - Account
                 Section(header:
                     Text("ACCOUNT")
                         .font(.caption)
@@ -47,7 +48,7 @@ struct SettingsView: View {
                         .foregroundColor(.deepPurple)
                 ) {
                     Text("Email: \(userViewModel.userProfile?.email ?? "")")
-                    
+
                     Button {
                         showDeleteConfirmation = true
                     } label: {
@@ -59,7 +60,7 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
-                    
+
                     Button {
                         userViewModel.signOut()
                     } label: {
@@ -107,7 +108,8 @@ struct SettingsView: View {
                         }
                     )
                 }
-                
+
+                // MARK: - Legal & Privacy
                 Section(header:
                     Text("LEGAL & PRIVACY")
                         .font(.caption)
@@ -126,11 +128,13 @@ struct SettingsView: View {
                 }
             }
         }
-        .navigationBarHidden(true)
-        // ADDED: Sheet for questionnaire
+        // Keep your sheets
         .sheet(isPresented: $showQuestionnaireSheet) {
             QuestionnaireView()
                 .environmentObject(userViewModel)
         }
+        // IMPORTANT: hide the system navigation bar entirely (since we're inside a NavigationStack)
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
     }
 }

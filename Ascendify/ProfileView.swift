@@ -38,7 +38,7 @@ struct ProfileView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                HeaderView()
+                ProfileHeaderView()
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 20) {
@@ -99,37 +99,6 @@ struct ProfileView: View {
                         }
                         .padding(.horizontal)
                         
-                        // MARK: – Analytics Dashboard (charts) between Stats and Achievements
-                        if let email = userViewModel.userProfile?.email,
-                           let token = userViewModel.accessToken, !token.isEmpty {
-                            ProfileCard {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    // Optional small title to match your style
-                                    Text("Training Analytics")
-                                        .font(.headline)
-                                        .foregroundColor(.tealBlue)
-
-                                    // The three charts (line, radar, pie)
-                                    DashboardView(userEmail: email, token: token)
-                                }
-                                .padding()
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(Color(.secondarySystemBackground))
-                                )
-                            }
-                            .padding(.horizontal)
-                        } else {
-                            // Optional: helpful placeholder if not logged in / no token
-                            ProfileCard {
-                                Text("Sign in to view analytics")
-                                    .font(.subheadline)
-                                    .foregroundColor(.gray)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .padding(.horizontal)
-                        }
-
                         // MARK: – Badges / Achievements Section
                         VStack(alignment: .leading, spacing: 20) {
                             Text("Your Achievements")
