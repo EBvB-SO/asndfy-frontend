@@ -331,50 +331,81 @@ final class SessionTrackingManager: ObservableObject {
 
     // MARK: - Plan Initialization
     func initializeTrackingForPlan(planId: String, plan: PlanModel) {
-        // Check if we already have sessions for this plan
-        if let existingSessions = sessionTracking[planId], !existingSessions.isEmpty {
-            print("✅ Sessions already exist for plan \(planId)")
-            if exerciseHistory[planId] == nil {
-                exerciseHistory[planId] = []
-                saveExerciseHistory()
+        Task {
+            print("🔄 Initializing tracking for plan: \(planId) (server-first with merge)")
+
+            var serverReturnedSessions = false
+
+            // 1️⃣ Try to refresh from server
+            if networkStatus == .connected {
+                await refreshSessions(for: planId)
+                if let existing = sessionTracking[planId], !existing.isEmpty {
+                    serverReturnedSessions = true
+                }
             }
-            return
-        }
 
-        print("🔄 Initializing tracking for plan: \(planId)")
-        var allSessions: [SessionTracking] = []
+            // 2️⃣ If server gave us sessions, merge with local
+            if serverReturnedSessions {
+                if let local = sessionTracking[planId], !local.isEmpty {
+                    let beforeCount = local.count
+                    if let serverSessions = sessionTracking[planId] {
+                        mergeServerSessions(serverSessions, for: planId)
+                        print("🔄 Merged server sessions with \(beforeCount) local sessions for plan \(planId)")
+                    }
+                }
+                // Ensure all merged sessions are valid
+                for session in sessionTracking[planId] ?? [] {
+                    ensureSessionExists(planId: planId, sessionId: session.id)
+                }
+                // Ensure exercise history exists
+                if exerciseHistory[planId] == nil {
+                    exerciseHistory[planId] = []
+                    saveExerciseHistory()
+                }
+                print("✅ Using merged \(sessionTracking[planId]?.count ?? 0) sessions for plan \(planId)")
+                return
+            }
 
-        for phase in plan.weeks {
-            if let weekRange = phase.title.extractWeekRange() {
-                for weekNum in weekRange.lowerBound..<weekRange.upperBound {
-                    for session in phase.sessions {
-                        if let day = extractDayFromSessionTitle(session.sessionTitle) {
-                            let tracking = SessionTracking(
-                                planId: planId,
-                                weekNumber: weekNum,
-                                dayOfWeek: day,
-                                focusName: extractFocusFromSessionTitle(session.sessionTitle)
-                            )
-                            allSessions.append(tracking)
+            // 3️⃣ If offline or server has nothing, generate sessions locally
+            print("⚠️ No server sessions found (or offline) → generating locally")
+            var allSessions: [SessionTracking] = []
+
+            for phase in plan.weeks {
+                if let weekRange = phase.title.extractWeekRange() {
+                    for weekNum in weekRange.lowerBound..<weekRange.upperBound {
+                        for session in phase.sessions {
+                            if let day = extractDayFromSessionTitle(session.sessionTitle) {
+                                let tracking = SessionTracking(
+                                    planId: planId,
+                                    weekNumber: weekNum,
+                                    dayOfWeek: day,
+                                    focusName: extractFocusFromSessionTitle(session.sessionTitle)
+                                )
+                                allSessions.append(tracking)
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Save locally
-        sessionTracking[planId] = allSessions
-        exerciseHistory[planId] = []
-        saveSessionTracking()
-        saveExerciseHistory()
+            // After generating locally
+            sessionTracking[planId] = allSessions
+            exerciseHistory[planId] = []
+            saveSessionTracking()
+            saveExerciseHistory()
 
-        print("✅ Created \(allSessions.count) sessions for plan \(planId)")
+            print("✅ Created \(allSessions.count) local sessions for plan \(planId)")
 
-        // Sync to server in background
-        Task {
-            await syncSessionsToServer(planId: planId, sessions: allSessions)
+            // 4️⃣ If online, push to server and validate sessions
+            if networkStatus == .connected {
+                await syncSessionsToServer(planId: planId, sessions: allSessions)
+                for session in allSessions {
+                    ensureSessionExists(planId: planId, sessionId: session.id)
+                }
+            }
         }
     }
+
 
     // MARK: - Exercise Tracking
     func generateExerciseKey(planId: String, sessionId: UUID, title: String) -> String {
@@ -1060,31 +1091,13 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     // MARK: - Helper Methods
-    private func ensureSessionExists(planId: String, sessionId: UUID) {
-        if let sessions = sessionTracking[planId],
-           sessions.contains(where: { $0.id == sessionId }) {
-            return
-        }
-
-        print("⚠️ Session \(sessionId) not found, creating placeholder")
-        let placeholderSession = SessionTracking(
-            withSpecificId: sessionId,
-            planId: planId,
-            weekNumber: 1,
-            dayOfWeek: "Monday",
-            focusName: "Auto-created session"
-        )
-
-        DispatchQueue.main.async {
-            if var sessions = self.sessionTracking[planId] {
-                sessions.append(placeholderSession)
-                self.sessionTracking[planId] = sessions
-            } else {
-                self.sessionTracking[planId] = [placeholderSession]
+        private func ensureSessionExists(planId: String, sessionId: UUID) {
+            if let sessions = sessionTracking[planId], sessions.contains(where: { $0.id == sessionId }) {
+                return
             }
-            self.saveSessionTracking()
+            print("⚠️ Session \(sessionId) not found locally for plan \(planId). Try calling refreshSessions(for:) to sync from server.")
+            // Do not create a placeholder; instead you could call fetchSessionsForPlan
         }
-    }
 
     private func updateExerciseSyncStatus(trackingId: UUID, planId: String, isSynced: Bool, error: String?) {
         guard var exercises = exerciseHistory[planId],

@@ -194,55 +194,40 @@ class DiaryManager: ObservableObject {
     @MainActor
     func syncDailyNotes() async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
-
-        isSyncing = true
-        syncError = nil
+        isSyncing = true; syncError = nil
+        defer { isSyncing = false }
 
         do {
+            // fetch server
             let url = URL(string: "\(baseURL)/daily_notes/\(email)")!
-            var request = URLRequest(url: url)
-            request.addAuthHeader()
-
-            // Use authenticated request
+            var request = URLRequest(url: url); request.addAuthHeader()
             let (data, _) = try await URLSession.shared.authenticatedData(for: request)
 
-            let decoder = JSONDecoder()
-            decoder.keyDecodingStrategy = .convertFromSnakeCase
-            decoder.dateDecodingStrategy = .iso8601
-            let serverNotes = try decoder.decode([DailyNoteServer].self, from: data)
-
-            var mergedNotes: [DailyNote] = []
-            var serverNoteIds = Set<String>()
-
-            // 1) Add all server notes to merged list
-            for serverNote in serverNotes {
-                serverNoteIds.insert(serverNote.id.lowercased()) // normalize IDs
-                mergedNotes.append(DailyNote(from: serverNote))
+            let serverNotes = try JSONDecoder().decode([DailyNoteServer].self, from: data)
+            var serverMap: [String: DailyNote] = [:]
+            for s in serverNotes {
+                let note = DailyNote(from: s)
+                serverMap[note.id.uuidString.lowercased()] = note
             }
 
-            // 2) Push any local unsynced notes that aren’t on the server yet
-            for localNote in dailyNotes
-            where !serverNoteIds.contains(localNote.id.uuidString.lowercased()) && !localNote.isSynced {
-                await createNoteOnServer(localNote)
+            // push locals that aren’t on server
+            for local in dailyNotes where serverMap[local.id.uuidString.lowercased()] == nil && !local.isSynced {
+                await createNoteOnServer(local)
             }
 
-            // 3) Ensure local unsynced notes stay visible immediately
-            let localUnsynced = dailyNotes.filter {
-                !serverNoteIds.contains($0.id.uuidString.lowercased()) && !$0.isSynced
+            // merge: prefer local (it may have unsynced edits)
+            var mergedById = serverMap
+            for local in dailyNotes {
+                mergedById[local.id.uuidString.lowercased()] = local
             }
-            mergedNotes.append(contentsOf: localUnsynced)
 
-            // 4) Publish + persist
-            self.dailyNotes = mergedNotes
-            self.saveDailyNotes()
+            dailyNotes = Array(mergedById.values)
+            saveDailyNotes()
 
         } catch {
             print("❌ Daily notes sync error: \(error)")
-            print("❌ Error type: \(type(of: error))")
             syncError = "Failed to sync notes: \(error.localizedDescription)"
         }
-
-        isSyncing = false
     }
     
     // MARK: - Daily Notes Management
@@ -274,10 +259,13 @@ class DiaryManager: ObservableObject {
     }
     
     func deleteDailyNote(_ note: DailyNote) {
-        // Delete from server
-        Task {
-            await deleteNoteOnServer(note)
+        // Optimistically remove locally
+        if let idx = dailyNotes.firstIndex(where: { $0.id == note.id }) {
+            dailyNotes.remove(at: idx)
+            saveDailyNotes()
         }
+        // Then delete on server
+        Task { await deleteNoteOnServer(note) }
     }
     
     // MARK: - Server Operations
@@ -339,7 +327,6 @@ class DiaryManager: ObservableObject {
     @MainActor
     private func updateNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
-
         do {
             let noteIdString = note.id.uuidString.lowercased()
             let url = URL(string: "\(baseURL)/daily_notes/\(email)/\(noteIdString)")!
@@ -347,15 +334,17 @@ class DiaryManager: ObservableObject {
             request.httpMethod = "PUT"
             request.addAuthHeader()
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(note)
+
+            let payload = DailyNoteUpdateRequest(content: note.content)
+            request.httpBody = try JSONEncoder().encode(payload)
 
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
-
-            if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
-                if let index = dailyNotes.firstIndex(where: { $0.id == note.id }) {
-                    dailyNotes[index].isSynced = true
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                if let i = dailyNotes.firstIndex(where: { $0.id == note.id }) {
+                    dailyNotes[i].isSynced = true
+                    dailyNotes[i].syncError = nil
+                    saveDailyNotes()
                 }
-                saveDailyNotes()
             } else {
                 print("❌ Failed to update note on server")
             }
@@ -924,6 +913,8 @@ struct DayDetailView: View {
         case .training(let sessionId, let planId):
             if let sessions = sessionManager.sessionTracking[planId],
                let session = sessions.first(where: { $0.id == sessionId }) {
+
+                // Tapping opens notes sheet (as before)
                 Button(action: {
                     selectedTrainingSession = session
                     selectedPlanId = planId
@@ -932,7 +923,58 @@ struct DayDetailView: View {
                     TrainingEntryCard(session: session, planId: planId)
                 }
                 .buttonStyle(PlainButtonStyle())
+                // Swipe for quick actions
+                .swipeActions(edge: .trailing) {
+                    Button {
+                        // Toggle completed/incomplete
+                        SessionTrackingManager.shared.markSessionCompleted(
+                            planId: planId,
+                            sessionId: session.id,
+                            completed: !session.isCompleted,
+                            notes: session.notes
+                        )
+                    } label: {
+                        if session.isCompleted {
+                            Label("Mark Incomplete", systemImage: "xmark.circle")
+                        } else {
+                            Label("Mark Complete", systemImage: "checkmark.circle")
+                        }
+                    }
+                    .tint(session.isCompleted ? .gray : .green)
+
+                    Button {
+                        selectedTrainingSession = session
+                        selectedPlanId = planId
+                        showingSessionNotes = true
+                    } label: {
+                        Label("Edit Notes", systemImage: "square.and.pencil")
+                    }
+                    .tint(.teal)
+                }
+                // Long-press menu too (nice on iPad)
+                .contextMenu {
+                    Button {
+                        SessionTrackingManager.shared.markSessionCompleted(
+                            planId: planId,
+                            sessionId: session.id,
+                            completed: !session.isCompleted,
+                            notes: session.notes
+                        )
+                    } label: {
+                        Label(session.isCompleted ? "Mark Incomplete" : "Mark Complete",
+                              systemImage: session.isCompleted ? "xmark.circle" : "checkmark.circle")
+                    }
+
+                    Button {
+                        selectedTrainingSession = session
+                        selectedPlanId = planId
+                        showingSessionNotes = true
+                    } label: {
+                        Label("Edit Notes", systemImage: "square.and.pencil")
+                    }
+                }
             }
+
             
         case .projectLog(let logEntry, let projectName):
             ProjectLogEntryCard(logEntry: logEntry, projectName: projectName)
@@ -1051,7 +1093,7 @@ struct TrainingEntryCard: View {
                         Image(systemName: "note.text")
                             .foregroundColor(.tealBlue)
                             .frame(width: 16)
-                        Text(session.notes)
+                        Text(trackingManager.cleanNotesForDisplay(session.notes))
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(3)

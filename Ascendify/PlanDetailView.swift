@@ -87,7 +87,6 @@ struct PlanDetailView: View {
         }
         .navigationBarHidden(true)
         .sheet(isPresented: $showingExerciseDetail, onDismiss: {
-            // write out any edits the user made inside PlanExerciseDetailView
             SessionTrackingManager.shared.saveAllData()
         }) {
             if let ex = selectedExercise {
@@ -105,16 +104,12 @@ struct PlanDetailView: View {
             }
         }
         .onAppear {
-            SessionTrackingManager
-                .shared
-                .initializeTrackingForPlan(planId: planId, plan: plan)
+            SessionTrackingManager.shared.initializeTrackingForPlan(planId: planId, plan: plan)
         }
         .onDisappear {
-            // make sure any locally initialised/merged data is written out
             SessionTrackingManager.shared.saveAllData()
         }
     }
-    
 
     // MARK: - Phase ‑Based View
     private var phaseBasedView: some View {
@@ -164,10 +159,10 @@ struct PlanDetailView: View {
                         .rotationEffect(.degrees(-90))
                         .animation(.easeInOut, value: progressStats.percentage)
                     
-                    VStack(spacing: 0) {
-                        Text("\(extractTotalWeeks())")
-                            .font(.system(size: 18, weight: .bold))
-                        Text("weeks")
+                    VStack(spacing: 2) {
+                        Text("\(Int(progressStats.percentage * 100))%")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("\(progressStats.completed)/\(progressStats.total)")
                             .font(.system(size: 10))
                             .foregroundColor(.gray)
                     }
@@ -243,7 +238,7 @@ struct PlanDetailView: View {
         }
         .padding(.horizontal)
     }
-    
+
     private var overviewCards: some View {
         VStack(spacing: 16) {
             PlanCardView(title: "Route Overview") {
@@ -442,17 +437,29 @@ struct SessionView: View {
 
     @ViewBuilder
     private var sessionHeader: some View {
-        if let idx = session.sessionTitle.firstIndex(of: ":") {
-            let day = String(session.sessionTitle[..<idx])
-            let rest = String(session.sessionTitle[idx...])
-            HStack(spacing: 6) {
-                Text(day).font(.headline).foregroundColor(.tealBlue)
-                Text(rest).font(.subheadline).foregroundColor(.gray)
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.gray.opacity(0.4))   // neutral dot (no completion state here)
+                .frame(width: 8, height: 8)
+
+            if let colon = session.sessionTitle.firstIndex(of: ":") {
+                let day = String(session.sessionTitle[..<colon])
+                let focus = session.sessionTitle[session.sessionTitle.index(after: colon)...]
+                    .trimmingCharacters(in: .whitespaces)
+
+                Text(day)
+                    .font(.headline)
+                    .foregroundColor(.tealBlue)
+
+                Text("· \(focus)")
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
+            } else {
+                // Fallback if there's no "Day: Focus" format
+                Text(session.sessionTitle)
+                    .font(.headline)
+                    .foregroundColor(.tealBlue)
             }
-        } else {
-            Text(session.sessionTitle)
-                .font(.headline)
-                .foregroundColor(.tealBlue)
         }
     }
 
