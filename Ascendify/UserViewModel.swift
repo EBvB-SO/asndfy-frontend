@@ -537,6 +537,7 @@ class UserViewModel: ObservableObject {
                         case "training_experience":        profile.trainingExperience = value
                         case "perceived_strengths":        profile.perceivedStrengths = value
                         case "perceived_weaknesses":       profile.perceivedWeaknesses = value
+                        case "attribute_ratings":          profile.attribute_ratings = value
                         case "weeks_to_train":             profile.weeksToTrain = value
                         case "sessions_per_week":          profile.sessionsPerWeek = value
                         case "time_per_session":           profile.timePerSession = value

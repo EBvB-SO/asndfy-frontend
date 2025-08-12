@@ -52,6 +52,20 @@ let attributesToRate = [
     "Mental Strength"
 ]
 
+// === Helper: turn "Crimp Strength: 4, Pinch Strength: 5, ..." -> ["Crimp Strength":4, ...]
+private func parseAttributeRatings(_ s: String) -> [String:Int] {
+    var out: [String:Int] = [:]
+    for part in s.split(separator: ",") {
+        let bits = part.split(separator: ":", maxSplits: 1)
+        guard bits.count == 2 else { continue }
+        let key = bits[0].trimmingCharacters(in: .whitespaces)
+        let val = bits[1].trimmingCharacters(in: .whitespaces)
+        if let n = Int(val) { out[key] = n }
+    }
+    return out
+}
+
+
 // MARK: – Data for Facilities
 
 /// All available training facilities, each with a “category” string
@@ -931,7 +945,17 @@ struct QuestionnaireView: View {
 
 
             // Legacy support: Populate ratedAttributes from perceived strengths/weaknesses
-            if !profile.perceivedStrengths.isEmpty || !profile.perceivedWeaknesses.isEmpty {
+            // Prefer exact numeric ratings if present; otherwise fall back to legacy strengths/weaknesses.
+            if !profile.attribute_ratings.isEmpty {
+                let dict = parseAttributeRatings(profile.attribute_ratings)
+                for i in ratedAttributes.indices {
+                    let key = ratedAttributes[i].name
+                    if let v = dict[key] {
+                        ratedAttributes[i].rating = max(1, min(5, v))
+                    }
+                }
+            } else if !profile.perceivedStrengths.isEmpty || !profile.perceivedWeaknesses.isEmpty {
+                // Legacy fallback
                 let oldStrengths = profile
                     .perceivedStrengths
                     .split(separator: ",")
@@ -952,6 +976,7 @@ struct QuestionnaireView: View {
                     }
                 }
             }
+
 
             let oldFacilities = profile.trainingFacilities
                 .split(separator: ",")
@@ -1069,6 +1094,7 @@ struct QuestionnaireView: View {
                     profile.trainingExperience = String(trainingExperienceYears)
                     profile.perceivedStrengths = strengthString
                     profile.perceivedWeaknesses = weaknessString
+                    profile.attribute_ratings = attributeRatings
 
                     profile.trainingFacilities = facilitiesString
                     profile.generalFitness = fitnessString
