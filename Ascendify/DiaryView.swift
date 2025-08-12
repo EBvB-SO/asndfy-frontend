@@ -58,13 +58,12 @@ struct DailyNote: Identifiable, Codable {
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "yyyy-MM-dd"
         dayFormatter.timeZone = TimeZone.current
-
         self.date = dayFormatter.date(from: serverNote.date) ?? Date()
         
-        // parse full ISO-8601 datetimes
+        // Parse full ISO-8601 datetimes
         let iso = ISO8601DateFormatter()
-        self.createdAt = iso.date(from: serverNote.createdAt) ?? Date()  // changed
-        if let u = serverNote.updatedAt {  // changed
+        self.createdAt = iso.date(from: serverNote.createdAt) ?? Date()
+        if let u = serverNote.updatedAt {
             self.updatedAt = iso.date(from: u)
         } else {
             self.updatedAt = nil
@@ -146,7 +145,7 @@ class DiaryManager: ObservableObject {
     private var currentUserEmail: String?
     private let baseURL = "http://127.0.0.1:8001"
 
-    // Compute a per‑user key.  If email isn’t set, don’t load or save anything.
+    // Compute a per-user key.  If email isn’t set, don’t load or save anything.
     private func storageKey() -> String? {
         guard let email = currentUserEmail else { return nil }
         return "diary_daily_notes_\(email.lowercased())"
@@ -155,12 +154,12 @@ class DiaryManager: ObservableObject {
     // Call this when the user signs in
     func setCurrentUser(email: String) {
         currentUserEmail = email.lowercased()
-        dailyNotes = []           // clear in‑memory notes immediately
-        loadDailyNotes()          // load the signed‑in user’s notes
+        dailyNotes = []           // clear in-memory notes immediately
+        loadDailyNotes()          // load the signed-in user’s notes
         Task { await syncDailyNotes() }  // optional: refresh from server
     }
 
-    // Call this on sign‑out
+    // Call this on sign-out
     func clearForSignOut() {
         if let key = storageKey() {
             UserDefaults.standard.removeObject(forKey: key)
@@ -203,7 +202,9 @@ class DiaryManager: ObservableObject {
             var request = URLRequest(url: url); request.addAuthHeader()
             let (data, _) = try await URLSession.shared.authenticatedData(for: request)
 
-            let serverNotes = try JSONDecoder().decode([DailyNoteServer].self, from: data)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let serverNotes = try decoder.decode([DailyNoteServer].self, from: data)
             var serverMap: [String: DailyNote] = [:]
             for s in serverNotes {
                 let note = DailyNote(from: s)
@@ -225,7 +226,9 @@ class DiaryManager: ObservableObject {
             saveDailyNotes()
 
         } catch {
+            #if DEBUG
             print("❌ Daily notes sync error: \(error)")
+            #endif
             syncError = "Failed to sync notes: \(error.localizedDescription)"
         }
     }
@@ -273,9 +276,6 @@ class DiaryManager: ObservableObject {
     private func createNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
 
-        // Lowercase ID for consistency (even though it's not in the URL)
-        let _ = note.id.uuidString.lowercased()
-
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "yyyy-MM-dd"
         dayFormatter.timeZone = TimeZone.current
@@ -295,7 +295,6 @@ class DiaryManager: ObservableObject {
 
             let encoder = JSONEncoder()
             encoder.keyEncodingStrategy = .convertToSnakeCase
-            encoder.dateEncodingStrategy = .iso8601
             request.httpBody = try encoder.encode(payload)
 
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
@@ -307,12 +306,18 @@ class DiaryManager: ObservableObject {
                     dailyNotes[index].syncError = nil
                     saveDailyNotes()
                 }
+                #if DEBUG
                 print("✅ Daily note created on server")
+                #endif
             } else {
+                #if DEBUG
                 print("❌ Failed to create note on server")
+                #endif
             }
         } catch {
+            #if DEBUG
             print("❌ Error creating note on server: \(error)")
+            #endif
             // Mark note as having sync error
             if let index = dailyNotes.firstIndex(where: { $0.id == note.id }) {
                 dailyNotes[index].syncError = error.localizedDescription
@@ -321,9 +326,7 @@ class DiaryManager: ObservableObject {
         }
     }
 
-    
     // MARK: - Server Update
-
     @MainActor
     private func updateNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
@@ -346,15 +349,18 @@ class DiaryManager: ObservableObject {
                     saveDailyNotes()
                 }
             } else {
+                #if DEBUG
                 print("❌ Failed to update note on server")
+                #endif
             }
         } catch {
+            #if DEBUG
             print("❌ Error updating note on server: \(error)")
+            #endif
         }
     }
 
     // MARK: - Server Delete
-
     @MainActor
     private func deleteNoteOnServer(_ note: DailyNote) async {
         guard let email = UserViewModel.shared.userProfile?.email else { return }
@@ -369,16 +375,21 @@ class DiaryManager: ObservableObject {
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
 
             if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
+                #if DEBUG
                 print("✅ Note deleted on server")
+                #endif
             } else {
+                #if DEBUG
                 print("❌ Failed to delete note on server")
+                #endif
             }
         } catch {
+            #if DEBUG
             print("❌ Error deleting note on server: \(error)")
+            #endif
         }
     }
 
-    
     // MARK: - Get All Entries for a Date
     func getEntriesForDate(_ date: Date) -> [DiaryEntryType] {
         var entries: [DiaryEntryType] = []
@@ -410,7 +421,6 @@ class DiaryManager: ObservableObject {
                 entries.append(.dailyNote(note: note))
             }
         }
-            
         return entries
     }
     
@@ -423,7 +433,6 @@ class DiaryManager: ObservableObject {
         
         return monthRange.compactMap { day -> CalendarDay? in
             guard let dayDate = calendar.date(byAdding: .day, value: day - 1, to: startOfMonth) else { return nil }
-            
             let entries = getEntriesForDate(dayDate)
             return CalendarDay(date: dayDate, entries: entries)
         }
@@ -446,72 +455,69 @@ struct DiaryView: View {
     }()
     
     var body: some View {
-            VStack(spacing: 0) {
-                HeaderView()
-                
-                if diaryManager.isSyncing {
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text("Syncing...")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                    .padding(.vertical, 4)
+        VStack(spacing: 0) {
+            HeaderView()
+            
+            if diaryManager.isSyncing {
+                HStack {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Syncing...")
+                        .font(.caption)
+                        .foregroundColor(.gray)
                 }
-                
-                ScrollView {
-                    VStack(spacing: 20) {
-                        // Month Navigation
-                        monthNavigationView
-                        
-                        // Calendar Grid
-                        calendarGridView
-                        
-                        // Legend
-                        legendView
-                        
-                        // Sync status
-                        if let syncError = diaryManager.syncError {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .foregroundColor(.orange)
-                                Text(syncError)
-                                    .font(.caption)
-                                    .foregroundColor(.orange)
-                            }
-                            .padding(.horizontal)
+                .padding(.vertical, 4)
+            }
+            
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Month Navigation
+                    monthNavigationView
+                    
+                    // Calendar Grid
+                    calendarGridView
+                    
+                    // Legend
+                    legendView
+                    
+                    // Sync status
+                    if let syncError = diaryManager.syncError {
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundColor(.orange)
+                            Text(syncError)
+                                .font(.caption)
+                                .foregroundColor(.orange)
                         }
+                        .padding(.horizontal)
                     }
-                    .padding()
                 }
-                .refreshable {
-                    await diaryManager.syncDailyNotes()
-                }
+                .padding()
             }
-            .navigationBarHidden(true)
-            .sheet(isPresented: $showingDayDetail) {
-                DayDetailView(date: selectedDate)
+            .refreshable {
+                await diaryManager.syncDailyNotes()
             }
-            .sheet(isPresented: $showingAddNote) {
-                AddNoteView(date: selectedDate) {
-                    // Refresh after adding note
-                    diaryManager.objectWillChange.send()
-                }
-            }
-            .onAppear {
-                diaryManager.setupExerciseUpdateListener()
-            }
-            // <-- New listener to force a refresh when exercises move
-            .onReceive(
-                NotificationCenter
-                    .default
-                    .publisher(for: .init("ExerciseDataUpdated")),
-                perform: { _ in
-                    diaryManager.objectWillChange.send()
-                }
-            )
         }
+        .navigationBarHidden(true)
+        .sheet(isPresented: $showingDayDetail) {
+            DayDetailView(date: selectedDate)
+        }
+        .sheet(isPresented: $showingAddNote) {
+            AddNoteView(date: selectedDate) {
+                // Refresh after adding note
+                diaryManager.objectWillChange.send()
+            }
+        }
+        // Single listener using Combine publisher (no addObserver leaks)
+        .onReceive(
+            NotificationCenter
+                .default
+                .publisher(for: .init("ExerciseDataUpdated")),
+            perform: { _ in
+                diaryManager.objectWillChange.send()
+            }
+        )
+    }
     
     // MARK: - Month Navigation
     private var monthNavigationView: some View {
@@ -608,30 +614,25 @@ struct DiaryView: View {
     
     // MARK: - Helper Functions
     private func previousMonth() {
-        currentMonth = calendar.date(byAdding: .month, value: -1, to: currentMonth) ?? currentMonth
+        currentMonth = Calendar.current.date(byAdding: .month, value: -1, to: currentMonth) ?? currentMonth
     }
     
     private func nextMonth() {
-        currentMonth = calendar.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
+        currentMonth = Calendar.current.date(byAdding: .month, value: 1, to: currentMonth) ?? currentMonth
     }
     
     private func getDaysWithPaddingWrapped(days: [CalendarDay]) -> [CalendarDayWrapper] {
         guard let firstDay = days.first else { return [] }
         
-        let weekday = calendar.component(.weekday, from: firstDay.date)
+        let weekday = Calendar.current.component(.weekday, from: firstDay.date)
         let padding = weekday - 1
         
         var wrappedDays: [CalendarDayWrapper] = []
         
         // Add padding days
-        for _ in 0..<padding {
-            wrappedDays.append(CalendarDayWrapper(day: nil))
-        }
-        
+        for _ in 0..<padding { wrappedDays.append(CalendarDayWrapper(day: nil)) }
         // Add actual days
-        for day in days {
-            wrappedDays.append(CalendarDayWrapper(day: day))
-        }
+        for day in days { wrappedDays.append(CalendarDayWrapper(day: day)) }
         
         return wrappedDays
     }
@@ -670,19 +671,13 @@ struct CalendarDayView: View {
                     if !day.entries.isEmpty {
                         HStack(spacing: 2) {
                             if day.hasTraining {
-                                Circle()
-                                    .fill(Color.blue)
-                                    .frame(width: 6, height: 6)
+                                Circle().fill(Color.blue).frame(width: 6, height: 6)
                             }
                             if day.hasProjectLog {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 6, height: 6)
+                                Circle().fill(Color.green).frame(width: 6, height: 6)
                             }
                             if day.hasDailyNote {
-                                Circle()
-                                    .fill(Color.purple)
-                                    .frame(width: 6, height: 6)
+                                Circle().fill(Color.purple).frame(width: 6, height: 6)
                             }
                         }
                     }
@@ -699,18 +694,11 @@ struct DayDetailView: View {
     let date: Date
     @StateObject private var diaryManager = DiaryManager.shared
     @StateObject private var sessionManager = SessionTrackingManager.shared
-    @StateObject private var projectsManager = ProjectsManager.shared
     @Environment(\.dismiss) private var dismiss
     @State private var showingAddNote = false
     @State private var selectedTrainingSession: SessionTracking? = nil
     @State private var selectedPlanId: String? = nil
     @State private var showingSessionNotes = false
-    
-    private var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .long
-        return formatter
-    }
     
     private var shortDateFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -743,7 +731,6 @@ struct DayDetailView: View {
         }
         .navigationBarHidden(true)
         .sheet(isPresented: $showingAddNote, onDismiss: {}) {
-            // content:
             AddNoteView(date: date) {
                 diaryManager.objectWillChange.send()
             }
@@ -752,7 +739,6 @@ struct DayDetailView: View {
             if let session = selectedTrainingSession, let plan = selectedPlanId {
                 SessionExerciseNotesView(session: session, planId: plan)
             } else {
-                // (Optional) fallback so the content always returns a View
                 Text("No session selected")
             }
         }
@@ -760,7 +746,6 @@ struct DayDetailView: View {
     
     private var headerSection: some View {
         ZStack {
-            // Gradient background matching your app
             LinearGradient(
                 gradient: Gradient(colors: [.ascendGreen, .vividPurple]),
                 startPoint: .leading,
@@ -822,7 +807,6 @@ struct DayDetailView: View {
             
             Spacer()
             
-            // Activity indicators
             HStack(spacing: 12) {
                 if entries.contains(where: { if case .training = $0 { return true }; return false }) {
                     VStack(spacing: 2) {
@@ -914,7 +898,6 @@ struct DayDetailView: View {
             if let sessions = sessionManager.sessionTracking[planId],
                let session = sessions.first(where: { $0.id == sessionId }) {
 
-                // Tapping opens notes sheet (as before)
                 Button(action: {
                     selectedTrainingSession = session
                     selectedPlanId = planId
@@ -923,10 +906,8 @@ struct DayDetailView: View {
                     TrainingEntryCard(session: session, planId: planId)
                 }
                 .buttonStyle(PlainButtonStyle())
-                // Swipe for quick actions
                 .swipeActions(edge: .trailing) {
                     Button {
-                        // Toggle completed/incomplete
                         SessionTrackingManager.shared.markSessionCompleted(
                             planId: planId,
                             sessionId: session.id,
@@ -951,7 +932,6 @@ struct DayDetailView: View {
                     }
                     .tint(.teal)
                 }
-                // Long-press menu too (nice on iPad)
                 .contextMenu {
                     Button {
                         SessionTrackingManager.shared.markSessionCompleted(
@@ -975,7 +955,6 @@ struct DayDetailView: View {
                 }
             }
 
-            
         case .projectLog(let logEntry, let projectName):
             ProjectLogEntryCard(logEntry: logEntry, projectName: projectName)
             
@@ -993,7 +972,7 @@ struct TrainingEntryCard: View {
     
     private func routeDisplayName(from planId: String) -> String {
         let parts = planId.split(separator: "_")
-        guard parts.count >= 2 else { return planId } // fallback if format is unexpected
+        guard parts.count >= 2 else { return planId }
         let grade = parts.last!
         let name = parts.dropLast()
             .map { String($0).capitalized }
@@ -1052,7 +1031,6 @@ struct TrainingEntryCard: View {
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                 
-                // ROUTE CHIP – clearer + labeled
                 HStack(spacing: 6) {
                     Image(systemName: "mountain.2.fill")
                         .font(.caption)
@@ -1065,7 +1043,7 @@ struct TrainingEntryCard: View {
                         .fontWeight(.semibold)
                         .foregroundColor(.deepPurple)
                 }
-                .padding(.leading, 2) // 👈 this keeps chip aligned with focusName text
+                .padding(.leading, 2)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(
@@ -1076,7 +1054,6 @@ struct TrainingEntryCard: View {
                 )
                 .accessibilityLabel("Route \(routeDisplayName(from: planId))")
 
-                
                 if exerciseCount > 0 {
                     HStack {
                         Image(systemName: "list.bullet")
@@ -1172,7 +1149,6 @@ struct ProjectLogEntryCard: View {
 // MARK: - Enhanced Daily Note Card
 struct DailyNoteCard: View {
     let note: DailyNote
-    @StateObject private var diaryManager = DiaryManager.shared
     @State private var showingEditNote = false
     
     var body: some View {
@@ -1204,7 +1180,6 @@ struct DailyNoteCard: View {
                 Spacer()
                 
                 HStack(spacing: 12) {
-                    // Sync status indicator
                     if !note.isSynced {
                         Image(systemName: "arrow.triangle.2.circlepath")
                             .foregroundColor(.orange)
@@ -1215,9 +1190,7 @@ struct DailyNoteCard: View {
                             .font(.system(size: 16))
                     }
                     
-                    Button(action: {
-                        showingEditNote = true
-                    }) {
+                    Button(action: { showingEditNote = true }) {
                         Image(systemName: "pencil")
                             .font(.system(size: 16))
                             .foregroundColor(.tealBlue)
@@ -1261,20 +1234,13 @@ struct AddNoteView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Custom header
                 headerSection
                 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Date display card
                         dateCard
-                        
-                        // Text editor section
                         textEditorSection
-                        
-                        // Quick suggestion chips
                         quickSuggestions
-                        
                         Spacer(minLength: 100)
                     }
                     .padding()
@@ -1418,8 +1384,12 @@ struct AddNoteView: View {
                 HStack {
                     Text(isExpanded ? "Collapse" : "Expand")
                         .font(.caption)
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: "chevron.up")
                         .font(.caption)
+                        .opacity(isExpanded ? 1 : 0)
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .opacity(isExpanded ? 0 : 1)
                 }
                 .foregroundColor(.tealBlue)
             }
@@ -1520,20 +1490,13 @@ struct EditNoteView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Custom header
                 headerSection
                 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Date display card
                         dateCard
-                        
-                        // Text editor section
                         textEditorSection
-                        
-                        // Metadata section
                         metadataSection
-                        
                         Spacer(minLength: 100)
                     }
                     .padding()
@@ -1697,8 +1660,12 @@ struct EditNoteView: View {
                 HStack {
                     Text(isExpanded ? "Collapse" : "Expand")
                         .font(.caption)
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: "chevron.up")
                         .font(.caption)
+                        .opacity(isExpanded ? 1 : 0)
+                    Image(systemName: "chevron.down")
+                        .font(.caption)
+                        .opacity(isExpanded ? 0 : 1)
                 }
                 .foregroundColor(.tealBlue)
             }
@@ -1783,16 +1750,16 @@ extension DiaryManager {
             queue: .main
         ) { [weak self] notification in
             guard let self = self else { return }
-            
-            // Force refresh of diary data when exercise data changes
             self.objectWillChange.send()
-            
-            if let userInfo = notification.userInfo,
-               let oldDate = userInfo["oldDate"] as? Date,
-               let newDate = userInfo["newDate"] as? Date {
+            if
+                let userInfo = notification.userInfo,
+                let oldDate = userInfo["oldDate"] as? Date,
+                let newDate = userInfo["newDate"] as? Date
+            {
+                #if DEBUG
                 print("📅 Diary: Exercise moved from \(oldDate) to \(newDate)")
+                #endif
             }
         }
     }
 }
-

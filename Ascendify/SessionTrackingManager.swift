@@ -1456,3 +1456,30 @@ extension Date {
         return toISO8601String()
     }
 }
+
+extension SessionTrackingManager {
+    /// Remove any cached session/exercise data for plan IDs the user no longer has.
+    /// Call after loading plans from server and after a successful delete.
+    func pruneOrphanPlanData(currentPlanIds: Set<String>) {
+        // normalize for safety
+        let normalized = Set(currentPlanIds.map { $0.lowercased() })
+
+        // keep server plans + anything still pending (so we don't drop offline edits)
+        var keep = normalized
+        let pendingSessionIds  = Set(pendingSessionUpdates.map { $0.planId.lowercased() })
+        let pendingExerciseIds = Set(pendingExerciseUpdates.map { $0.tracking.planId.lowercased() })
+        keep.formUnion(pendingSessionIds)
+        keep.formUnion(pendingExerciseIds)
+
+        // drop everything else
+        sessionTracking       = sessionTracking.filter       { keep.contains($0.key.lowercased()) }
+        exerciseHistory       = exerciseHistory.filter       { keep.contains($0.key.lowercased()) }
+        pendingSessionUpdates.removeAll   { !keep.contains($0.planId.lowercased()) }
+        pendingExerciseUpdates.removeAll  { !keep.contains($0.tracking.planId.lowercased()) }
+
+        // persist + notify UI
+        saveAllData()
+        objectWillChange.send()
+        NotificationCenter.default.post(name: .init("ExerciseDataUpdated"), object: nil)
+    }
+}

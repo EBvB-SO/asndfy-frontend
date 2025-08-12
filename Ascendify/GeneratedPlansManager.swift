@@ -56,16 +56,33 @@ class GeneratedPlansManager: ObservableObject {
         }
     }
     
+    private func planIdentifier(for wrapper: PlanWrapper) -> String {
+        // Use the server ID when we have it; otherwise fall back to a stable local key.
+        if let sid = wrapper.serverId, !sid.isEmpty {
+            return sid.lowercased()
+        }
+        // Fallback: make a deterministic local key (match whatever you used before).
+        return "\(wrapper.routeName)_\(wrapper.grade)"
+            .replacingOccurrences(of: " ", with: "_")
+            .lowercased()
+    }
+
+    private func pruneCachesForCurrentPlans() {
+        let ids = Set(plans.map { planIdentifier(for: $0) })
+        SessionTrackingManager.shared.pruneOrphanPlanData(currentPlanIds: ids)
+    }
+
+    
     /// Load plans from UserDefaults
     private func loadPlans() {
         guard let data = UserDefaults.standard.data(forKey: plansStorageKey) else {
             print("No saved plans found in storage")
             return
         }
-        
         do {
             plans = try JSONDecoder().decode([PlanWrapper].self, from: data)
             print("Successfully loaded \(plans.count) plans from storage")
+            pruneCachesForCurrentPlans()   // ← optional, nice to have
         } catch {
             print("Error loading plans from storage: \(error.localizedDescription)")
         }
@@ -74,6 +91,7 @@ class GeneratedPlansManager: ObservableObject {
     func clearPlans() {
         plans = []
         UserDefaults.standard.removeObject(forKey: plansStorageKey)
+        pruneCachesForCurrentPlans()
     }
     
     /// Fetch plans from server with proper authentication and token refresh
@@ -127,6 +145,7 @@ class GeneratedPlansManager: ObservableObject {
                 
                 // Save to local storage
                 savePlansToStorage()
+                pruneCachesForCurrentPlans()
                 
                 print("Successfully fetched \(self.plans.count) plans from server")
                 
@@ -134,6 +153,7 @@ class GeneratedPlansManager: ObservableObject {
                 // No plans found for user
                 self.plans = []
                 savePlansToStorage()
+                pruneCachesForCurrentPlans()
                 print("No plans found for user")
                 
             default:
@@ -268,6 +288,7 @@ extension GeneratedPlansManager {
         // Remove locally first for snappy UI
         plans.remove(at: index)
         savePlansToStorage()
+        pruneCachesForCurrentPlans()
 
         // Try server delete (best-effort)
         if let sid {
