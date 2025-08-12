@@ -13,7 +13,7 @@ struct ProfileView: View {
     @EnvironmentObject var userViewModel: UserViewModel
     @ObservedObject var plansManager = GeneratedPlansManager.shared
     @ObservedObject var projectsManager = ProjectsManager.shared
-    // REMOVED: @State private var showQuestionnaireSheet = false
+    @State private var exerciseDistribution: [PieSlice] = []
 
     // Generate badges via helper
     private var badges: [BadgeData] {
@@ -98,6 +98,37 @@ struct ProfileView: View {
                             )
                         }
                         .padding(.horizontal)
+                        
+                        // MARK: – Analytics Dashboard (charts) between Stats and Achievements
+                        if let email = userViewModel.userProfile?.email,
+                           let token = userViewModel.accessToken, !token.isEmpty {
+                            ProfileCard {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    // Optional small title to match your style
+                                    Text("Training Analytics")
+                                        .font(.headline)
+                                        .foregroundColor(.tealBlue)
+
+                                    // The three charts (line, radar, pie)
+                                    DashboardView(userEmail: email, token: token)
+                                }
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(.secondarySystemBackground))
+                                )
+                            }
+                            .padding(.horizontal)
+                        } else {
+                            // Optional: helpful placeholder if not logged in / no token
+                            ProfileCard {
+                                Text("Sign in to view analytics")
+                                    .font(.subheadline)
+                                    .foregroundColor(.gray)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .padding(.horizontal)
+                        }
 
                         // MARK: – Badges / Achievements Section
                         VStack(alignment: .leading, spacing: 20) {
@@ -111,14 +142,11 @@ struct ProfileView: View {
                                 BadgesSection(category: category, badges: badges)
                             }
                         }
-
-                        // REMOVED: "Edit Questionnaire" button section
                     }
                     .padding(.bottom, 20)
                 }
             }
         }
-        // REMOVED: .sheet(isPresented: $showQuestionnaireSheet) { ... }
     }
     
     // MARK: - DEBUG FUNCTIONS (INSIDE THE STRUCT)

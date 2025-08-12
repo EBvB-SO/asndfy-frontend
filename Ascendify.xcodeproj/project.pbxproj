@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		281CDC9E2E4B3C8500CC0845 /* DGCharts in Frameworks */ = {isa = PBXBuildFile; productRef = 281CDC9D2E4B3C8500CC0845 /* DGCharts */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		28F9E30F2D57AEF100ED6107 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				281CDC9E2E4B3C8500CC0845 /* DGCharts in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +117,7 @@
 			);
 			name = Ascendify;
 			packageProductDependencies = (
+				281CDC9D2E4B3C8500CC0845 /* DGCharts */,
 			);
 			productName = Ascendify;
 			productReference = 28F9E2FE2D57AEF000ED6107 /* Ascendify.app */;
@@ -195,6 +201,9 @@
 			);
 			mainGroup = 28F9E2F52D57AEF000ED6107;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				281CDC9C2E4B3C8500CC0845 /* XCRemoteSwiftPackageReference "Charts" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 28F9E2FF2D57AEF000ED6107 /* Products */;
 			projectDirPath = "";
@@ -558,6 +567,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		281CDC9C2E4B3C8500CC0845 /* XCRemoteSwiftPackageReference "Charts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/danielgindi/Charts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		281CDC9D2E4B3C8500CC0845 /* DGCharts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 281CDC9C2E4B3C8500CC0845 /* XCRemoteSwiftPackageReference "Charts" */;
+			productName = DGCharts;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 28F9E2F62D57AEF000ED6107 /* Project object */;
 }
