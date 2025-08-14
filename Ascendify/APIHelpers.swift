@@ -8,6 +8,7 @@
 import Foundation
 
 extension URLRequest {
+    @MainActor
     mutating func addAuthHeader() {
         if let token = UserViewModel.shared.accessToken {
             let authValue = "Bearer \(token)"

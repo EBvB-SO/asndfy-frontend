@@ -121,24 +121,28 @@ final class TestsViewModel: ObservableObject {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
 
-            // Handle empty body gracefully
+            // Empty body → no results
             if data.isEmpty {
                 self.resultsByTest[test.id] = []
+                NotificationCenter.default.post(name: Notification.Name("TestDataUpdated"), object: nil)
                 return
             }
 
             let decoder = JSONDecoder.resultsDecoder()
             let decoded = try decoder.decode([TestResult].self, from: data)
             self.resultsByTest[test.id] = decoded
+            NotificationCenter.default.post(name: Notification.Name("TestDataUpdated"), object: nil)
+
         } catch {
             errorMessage = "Failed to load results: \(error.localizedDescription)"
         }
     }
+
 
     /// Submit a new result and refresh the list for that test.
     func submitResult(
@@ -213,15 +217,17 @@ final class TestsViewModel: ObservableObject {
             let (data, response) = try await session.data(for: req)
             try Self.assertOK(response)
 
-            // Handle an empty body gracefully; treat it as “no results”
             if data.isEmpty {
                 resultsByTest[test.id] = []
+                NotificationCenter.default.post(name: Notification.Name("TestDataUpdated"), object: nil)
                 return
             }
 
             let decoder = JSONDecoder.resultsDecoder()
             let decoded = try decoder.decode([TestResult].self, from: data)
             resultsByTest[test.id] = decoded
+            NotificationCenter.default.post(name: Notification.Name("TestDataUpdated"), object: nil)
+
         } catch let e as TestsNetworkError {
             errorMessage = e.localizedDescription
             throw e
@@ -231,7 +237,6 @@ final class TestsViewModel: ObservableObject {
             throw wrapped
         }
     }
-
 
     /// Throws if the HTTPURLResponse is not in the 2xx range.
     private static func assertOK(_ response: URLResponse) throws {

@@ -45,11 +45,10 @@ struct UserProfile {
     var additionalNotes: String = ""
 }
 
-class UserViewModel: ObservableObject {
-    static var shared: UserViewModel = {
-        let instance = UserViewModel()
-        return instance
-    }()
+@MainActor
+final class UserViewModel: ObservableObject {
+    // Allow read-only access to the singleton from background code (e.g., URLRequest extension)
+    static let shared = UserViewModel()
     
     @Published var isSignedIn = false
     @Published var needsQuestionnaire = false

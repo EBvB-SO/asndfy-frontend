@@ -6,26 +6,30 @@
 //
 
 import SwiftUI
+import Combine
 
 // MARK: - Diary Entry Types
 enum DiaryEntryType {
     case training(sessionId: UUID, planId: String)
     case projectLog(logEntry: LogEntry, projectName: String)
     case dailyNote(note: DailyNote)
+    case test(result: TestResult, definition: TestDefinition)
     
     var color: Color {
         switch self {
-        case .training: return .blue
+        case .training:   return .blue
         case .projectLog: return .green
-        case .dailyNote: return .purple
+        case .dailyNote:  return .purple
+        case .test:       return .orange
         }
     }
     
     var iconName: String {
         switch self {
-        case .training: return "figure.climbing"
+        case .training:   return "figure.climbing"
         case .projectLog: return "flag.fill"
-        case .dailyNote: return "note.text"
+        case .dailyNote:  return "note.text"
+        case .test:       return "testtube.2"
         }
     }
 }
@@ -119,6 +123,13 @@ struct CalendarDay: Identifiable, Hashable {
         }
     }
     
+    var hasTest: Bool {
+           entries.contains { entry in
+               if case .test = entry { return true }
+               return false
+           }
+       }
+    
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
@@ -135,6 +146,7 @@ struct CalendarDayWrapper: Identifiable {
 }
 
 // MARK: - Diary Manager
+@MainActor
 class DiaryManager: ObservableObject {
     static let shared = DiaryManager()
 
@@ -415,12 +427,23 @@ class DiaryManager: ObservableObject {
                 }
             }
         }
+        
+        // Get test logs
+        let testsVM = TestsViewModel.shared
+            for def in testsVM.tests {
+                if let results = testsVM.resultsByTest[def.id] {
+                    for r in results where calendar.isDate(r.date, inSameDayAs: date) {
+                        entries.append(.test(result: r, definition: def))
+                    }
+                }
+            }
         // Get daily notes
         for note in dailyNotes {
             if calendar.isDate(note.date, inSameDayAs: date) {
                 entries.append(.dailyNote(note: note))
             }
         }
+        
         return entries
     }
     
@@ -441,11 +464,13 @@ class DiaryManager: ObservableObject {
 
 // MARK: - Main Diary View
 struct DiaryView: View {
-    @StateObject private var diaryManager = DiaryManager.shared
     @State private var selectedDate = Date()
     @State private var showingDayDetail = false
     @State private var showingAddNote = false
     @State private var currentMonth = Date()
+    @ObservedObject private var diaryManager = DiaryManager.shared
+    @ObservedObject private var testsVM = TestsViewModel.shared
+    @EnvironmentObject var userViewModel: UserViewModel
     
     private let calendar = Calendar.current
     private let dateFormatter: DateFormatter = {
@@ -460,8 +485,7 @@ struct DiaryView: View {
             
             if diaryManager.isSyncing {
                 HStack {
-                    ProgressView()
-                        .scaleEffect(0.8)
+                    ProgressView().scaleEffect(0.8)
                     Text("Syncing...")
                         .font(.caption)
                         .foregroundColor(.gray)
@@ -502,43 +526,53 @@ struct DiaryView: View {
         .sheet(isPresented: $showingDayDetail) {
             DayDetailView(date: selectedDate)
         }
+        // If you still want to add notes directly from this screen, keep this sheet too:
         .sheet(isPresented: $showingAddNote) {
             AddNoteView(date: selectedDate) {
-                // Refresh after adding note
                 diaryManager.objectWillChange.send()
             }
         }
-        // Single listener using Combine publisher (no addObserver leaks)
-        .onReceive(
-            NotificationCenter
-                .default
-                .publisher(for: .init("ExerciseDataUpdated")),
-            perform: { _ in
-                diaryManager.objectWillChange.send()
+        .onAppear {
+            Task {
+                // Load test definitions once
+                if testsVM.tests.isEmpty {
+                    await testsVM.loadTests()
+                }
+                // Load the user's results for each test definition
+                if let email = userViewModel.userProfile?.email,
+                   let token = userViewModel.accessToken {
+                    for test in testsVM.tests {
+                        await testsVM.loadResults(for: test, userEmail: email, token: token)
+                    }
+                    // Force a re-render so the dots/cards update
+                    diaryManager.objectWillChange.send()
+                }
             }
-        )
+        }
+        // Listen for test updates (e.g., after logging a result)
+        .onReceive(NotificationCenter.default.publisher(for: .init("TestDataUpdated"))) { _ in
+            diaryManager.objectWillChange.send()
+        }
+        // Existing exercise refresh
+        .onReceive(NotificationCenter.default.publisher(for: .init("ExerciseDataUpdated"))) { _ in
+            diaryManager.objectWillChange.send()
+        }
     }
     
     // MARK: - Month Navigation
     private var monthNavigationView: some View {
         HStack {
             Button(action: previousMonth) {
-                Image(systemName: "chevron.left")
-                    .foregroundColor(.tealBlue)
+                Image(systemName: "chevron.left").foregroundColor(.tealBlue)
             }
-            
             Spacer()
-            
             Text(dateFormatter.string(from: currentMonth))
                 .font(.title2)
                 .fontWeight(.bold)
                 .foregroundColor(.deepPurple)
-            
             Spacer()
-            
             Button(action: nextMonth) {
-                Image(systemName: "chevron.right")
-                    .foregroundColor(.tealBlue)
+                Image(systemName: "chevron.right").foregroundColor(.tealBlue)
             }
         }
         .padding(.horizontal)
@@ -560,7 +594,6 @@ struct DiaryView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            
             // Calendar days
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(getDaysWithPaddingWrapped(days: days)) { wrapper in
@@ -570,8 +603,7 @@ struct DiaryView: View {
                             showingDayDetail = true
                         }
                     } else {
-                        Color.clear
-                            .frame(height: 50)
+                        Color.clear.frame(height: 50)
                     }
                 }
             }
@@ -587,11 +619,11 @@ struct DiaryView: View {
             Text("Legend")
                 .font(.headline)
                 .foregroundColor(.deepPurple)
-            
             HStack(spacing: 20) {
                 legendItem(color: .blue, text: "Training")
                 legendItem(color: .green, text: "Project Log")
                 legendItem(color: .purple, text: "Daily Note")
+                legendItem(color: .orange, text: "Test")
             }
         }
         .padding()
@@ -603,12 +635,8 @@ struct DiaryView: View {
     
     private func legendItem(color: Color, text: String) -> some View {
         HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 10, height: 10)
-            Text(text)
-                .font(.caption)
-                .foregroundColor(.gray)
+            Circle().fill(color).frame(width: 10, height: 10)
+            Text(text).font(.caption).foregroundColor(.gray)
         }
     }
     
@@ -623,20 +651,15 @@ struct DiaryView: View {
     
     private func getDaysWithPaddingWrapped(days: [CalendarDay]) -> [CalendarDayWrapper] {
         guard let firstDay = days.first else { return [] }
-        
         let weekday = Calendar.current.component(.weekday, from: firstDay.date)
         let padding = weekday - 1
-        
-        var wrappedDays: [CalendarDayWrapper] = []
-        
-        // Add padding days
-        for _ in 0..<padding { wrappedDays.append(CalendarDayWrapper(day: nil)) }
-        // Add actual days
-        for day in days { wrappedDays.append(CalendarDayWrapper(day: day)) }
-        
-        return wrappedDays
+        var wrapped: [CalendarDayWrapper] = []
+        for _ in 0..<padding { wrapped.append(.init(day: nil)) }   // padding
+        for d in days { wrapped.append(.init(day: d)) }            // actual days
+        return wrapped
     }
 }
+
 
 // MARK: - Calendar Day View
 struct CalendarDayView: View {
@@ -678,6 +701,9 @@ struct CalendarDayView: View {
                             }
                             if day.hasDailyNote {
                                 Circle().fill(Color.purple).frame(width: 6, height: 6)
+                            }
+                            if day.hasTest {
+                                Circle().fill(Color.orange).frame(width: 6, height: 6)
                             }
                         }
                     }
@@ -840,6 +866,17 @@ struct DayDetailView: View {
                             .foregroundColor(.purple)
                     }
                 }
+                
+                if entries.contains(where: { if case .test = $0 { return true }; return false }) {
+                    VStack(spacing: 2) {
+                        Image(systemName: "testtube.2")
+                            .font(.system(size: 16))
+                            .foregroundColor(.orange)
+                        Text("Test")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                    }
+                }
             }
         }
         .padding()
@@ -960,6 +997,9 @@ struct DayDetailView: View {
             
         case .dailyNote(let note):
             DailyNoteCard(note: note)
+            
+        case .test(let result, let definition):
+            TestEntryCard(result: result, definition: definition)
         }
     }
 }
@@ -1217,6 +1257,51 @@ struct DailyNoteCard: View {
         .sheet(isPresented: $showingEditNote) {
             EditNoteView(note: note)
         }
+    }
+}
+
+// MARK: - Test Entry Card
+struct TestEntryCard: View {
+    let result: TestResult
+    let definition: TestDefinition
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.orange.opacity(0.1))
+                            .frame(width: 44, height: 44)
+                        Image(systemName: "testtube.2")
+                            .font(.system(size: 20))
+                            .foregroundColor(.orange)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(definition.name)
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.orange)
+                        // show value and unit
+                        Text("\(result.value, specifier: "%.1f") \(definition.unit ?? "")")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            if let notes = result.notes, !notes.isEmpty {
+                Text(notes)
+                    .font(.body)
+                    .foregroundColor(.primary)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
+        )
     }
 }
 
