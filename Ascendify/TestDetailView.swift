@@ -34,7 +34,7 @@ private struct SummaryTile: View {
         }
         .padding(12)
         .background(Color(.systemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous)) // 16
         .shadow(color: Color.black.opacity(0.04), radius: 4, y: 2)
     }
 }
@@ -60,8 +60,23 @@ struct TestDetailView: View {
                     // MARK: Header
                     ZStack(alignment: .bottomLeading) {
                         BrandGradients.header
-                            .frame(height: 120)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .frame(height: 140)
+                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous)) // rounder
+
+                        // Close button (overlay in the same ZStack)
+                        VStack { } // empty spacer layer to host the overlay
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .overlay(alignment: .topTrailing) {
+                                Button(action: { dismiss() }) {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.9))
+                                        .padding(12)
+                                }
+                                .padding(.top, 4)
+                                .padding(.trailing, 4)
+                                .accessibilityLabel("Close")
+                            }
 
                         VStack(alignment: .leading, spacing: 8) {
                             Text(content.title ?? test.name)
@@ -75,6 +90,7 @@ struct TestDetailView: View {
                             }
                         }
                         .padding(16)
+                        .padding(.top, 8) // keeps the title comfortably away from the top
                     }
 
                     // MARK: Summary
@@ -87,16 +103,21 @@ struct TestDetailView: View {
                                     value: formattedBest(results),
                                     subtitle: test.unit ?? ""
                                 )
+                                .frame(maxWidth: .infinity)   // expand equally
+
                                 SummaryTile(
                                     title: "Latest",
                                     value: formattedLatest(results),
                                     subtitle: results.last?.dateString ?? ""
                                 )
+                                .frame(maxWidth: .infinity)   // expand equally
+
                                 SummaryTile(
                                     title: "Trend",
                                     value: trendString(results),
                                     subtitle: "30d"
                                 )
+                                .frame(maxWidth: .infinity)   // expand equally
                             }
                         }
                     }
@@ -205,15 +226,6 @@ struct TestDetailView: View {
                 .padding(.vertical, 16)
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 22, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
             .safeAreaInset(edge: .bottom) { bottomActionBar }
             .sheet(isPresented: $showRunner) {
                 TestRunnerView(
