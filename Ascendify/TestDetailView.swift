@@ -8,15 +8,38 @@
 import SwiftUI
 import Charts
 
-private struct SectionHeader: View {
-    let text: String
+// MARK: - Shared spacing constants
+private enum Metrics {
+    static let cardPadding: CGFloat = 16
+    static let cardCorner: CGFloat  = 14
+    static let cardSpacing: CGFloat = 12
+}
+
+// MARK: - Reusable UI atoms
+
+private struct SummaryTile: View {
+    let title: String
+    let value: String
+    let subtitle: String
     var body: some View {
-        Text(text.uppercased())
-            .font(.caption).bold()
-            .foregroundColor(.secondary)
-            .padding(.top, 14)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption).fontWeight(.semibold)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title2).fontWeight(.heavy)
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Color.black.opacity(0.04), radius: 4, y: 2)
     }
 }
+
+// MARK: - View
 
 struct TestDetailView: View {
     let test: TestDefinition
@@ -26,93 +49,160 @@ struct TestDetailView: View {
     @EnvironmentObject var userViewModel: UserViewModel
     @ObservedObject private var testsVM = TestsViewModel.shared
 
+    // Derived
+    private var results: [TestResult] { testsVM.resultsByTest[test.id] ?? [] }
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(content.title ?? test.name)
-                        .font(.system(size: 32, weight: .heavy))
-                        .foregroundColor(Color(Brand.slate))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 8)
+                VStack(spacing: 16) {
 
+                    // MARK: Header
+                    ZStack(alignment: .bottomLeading) {
+                        BrandGradients.header
+                            .frame(height: 120)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(content.title ?? test.name)
+                                .font(.system(size: 28, weight: .heavy))
+                                .foregroundStyle(.white)
+                                .shadow(radius: 2)
+
+                            HStack(spacing: 8) {
+                                Pill(text: results.isEmpty ? "No results" : "\(results.count) results")
+                                if let unit = test.unit, !unit.isEmpty { Pill(text: unit) }
+                            }
+                        }
+                        .padding(16)
+                    }
+
+                    // MARK: Summary
+                    if !results.isEmpty {
+                        Card {
+                            SectionLabel(text: "Summary")
+                            HStack(spacing: 12) {
+                                SummaryTile(
+                                    title: "Best",
+                                    value: formattedBest(results),
+                                    subtitle: test.unit ?? ""
+                                )
+                                SummaryTile(
+                                    title: "Latest",
+                                    value: formattedLatest(results),
+                                    subtitle: results.last?.dateString ?? ""
+                                )
+                                SummaryTile(
+                                    title: "Trend",
+                                    value: trendString(results),
+                                    subtitle: "30d"
+                                )
+                            }
+                        }
+                    }
+
+                    // MARK: Purpose & Setup
                     if let purpose = content.purpose {
-                        SectionHeader(text: "Purpose")
-                        Text(purpose).font(.body).foregroundColor(.primary)
+                        Card {
+                            SectionLabel(text: "Purpose")
+                            Text(purpose)
+                        }
                     }
 
                     if let equipment = content.equipment {
-                        SectionHeader(text: "Equipment & setup")
-                        Text(equipment).font(.body)
+                        Card {
+                            SectionLabel(text: "Equipment & Setup")
+                            Text(equipment)
+                        }
                     }
 
-                    if let standardize = content.standardize {
-                        SectionHeader(text: "Standardize before each attempt")
-                        bulletList(standardize)
+                    if let standardize = content.standardize, !standardize.isEmpty {
+                        Card {
+                            SectionLabel(text: "Standardize before each attempt")
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(standardize, id: \.self) { BulletRow(text: $0) }
+                            }
+                        }
                     }
 
                     if let warmup = content.warmup {
-                        SectionHeader(text: "Warm-up (5–10 min)")
-                        Text(warmup).font(.body)
+                        Card {
+                            SectionLabel(text: "Warm-up (5–10 min)")
+                            Text(warmup)
+                        }
                     }
 
-                    if let proto = content.`protocol` {
-                        SectionHeader(text: "Protocol")
-                        bulletList(proto)
-                    }
-
-                    if let recording = content.recording {
-                        SectionHeader(text: "How to record")
-                        bulletList(recording)
-                    }
-
-                    if let safety = content.safety {
-                        SectionHeader(text: "Safety")
-                        bulletList(safety)
-                    }
-
-                    // MARK: Results Section
-                    SectionHeader(text: "Results")
-
-                    if let results = testsVM.resultsByTest[test.id], !results.isEmpty {
-                        // Results list
-                        ForEach(results) { result in
-                            HStack {
-                                Text(result.dateString)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                Text("\(result.value, specifier: "%.1f") \(test.unit ?? "")")
-                                    .font(.body)
-                                    .fontWeight(.semibold)
+                    if let proto = content.`protocol`, !proto.isEmpty {
+                        Card {
+                            SectionLabel(text: "Protocol")
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(proto, id: \.self) { BulletRow(text: $0) }
                             }
-                            .padding(.vertical, 4)
-                            Divider()
                         }
+                    }
 
-                        // Optional: chart
-                        SectionHeader(text: "Progress")
-                        Chart(results) {
-                            LineMark(
-                                x: .value("Date", $0.date),
-                                y: .value("Value", $0.value)
-                            )
-                            PointMark(
-                                x: .value("Date", $0.date),
-                                y: .value("Value", $0.value)
-                            )
+                    if let recording = content.recording, !recording.isEmpty {
+                        Card {
+                            SectionLabel(text: "How to record")
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(recording, id: \.self) { BulletRow(text: $0) }
+                            }
                         }
-                        .frame(height: 200)
-                        .padding(.bottom, 12)
+                    }
 
-                    } else {
-                        Text("No results yet")
-                            .foregroundColor(.secondary)
-                            .padding(.bottom, 12)
+                    if let safety = content.safety, !safety.isEmpty {
+                        Card {
+                            SectionLabel(text: "Safety")
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(safety, id: \.self) { BulletRow(text: $0) }
+                            }
+                        }
+                    }
+
+                    // MARK: Results
+                    Card {
+                        SectionLabel(text: "Results")
+                        if results.isEmpty {
+                            HStack(spacing: 10) {
+                                Image(systemName: "chart.xyaxis.line")
+                                Text("No results yet. Start the test or log one manually.")
+                            }
+                            .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(results) { r in
+                                HStack {
+                                    Text(r.dateString).foregroundStyle(.secondary)
+                                    Spacer()
+                                    Text("\(r.value, specifier: "%.1f") \(test.unit ?? "")")
+                                        .fontWeight(.semibold)
+                                }
+                                .padding(.vertical, 4)
+
+                                if r.id != results.last?.id { Divider() }
+                            }
+                        }
+                    }
+
+                    // MARK: Chart
+                    if results.count >= 2 {
+                        Card {
+                            SectionLabel(text: "Progress")
+                            Chart(results) {
+                                LineMark(
+                                    x: .value("Date", $0.date),
+                                    y: .value("Value", $0.value)
+                                )
+                                PointMark(
+                                    x: .value("Date", $0.date),
+                                    y: .value("Value", $0.value)
+                                )
+                            }
+                            .frame(height: 200)
+                        }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 80)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -120,40 +210,11 @@ struct TestDetailView: View {
                     Button { dismiss() } label: {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 22, weight: .semibold))
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                HStack(spacing: 12) {
-                    Button {
-                        showRunner = true
-                    } label: {
-                        Text("Start Test")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.teal)
-                            .foregroundColor(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-
-                    Button {
-                        showLog = true
-                    } label: {
-                        Text("Log Result")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color(.tertiarySystemFill))
-                            .foregroundColor(Color(Brand.slate))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(.ultraThinMaterial)
-            }
+            .safeAreaInset(edge: .bottom) { bottomActionBar }
             .sheet(isPresented: $showRunner) {
                 TestRunnerView(
                     kind: content.kind,
@@ -163,47 +224,88 @@ struct TestDetailView: View {
                         showLog = true
                     }
                 )
+                .presentationDetents([.medium, .large])
             }
             .sheet(isPresented: $showLog) {
-                LogResultSheet(test: test, onSaved: {
-                    // After the sheet saves, refresh the results on this screen
-                    Task {
-                        if let email = userViewModel.userProfile?.email,
-                           let token = userViewModel.accessToken, !token.isEmpty {
-                            try? await testsVM.refreshResults(for: test, userEmail: email, token: token)
-                        }
-                    }
-                })
-                .environmentObject(userViewModel)
+                LogResultSheet(test: test, onSaved: { refresh() })
+                    .environmentObject(userViewModel)
+                    .presentationDetents([.medium, .large])
             }
-            .onAppear {
-                // Auto-refresh results when detail opens
-                Task {
-                    if let email = userViewModel.userProfile?.email,
-                       let token = userViewModel.accessToken, !token.isEmpty {
-                        try? await testsVM.refreshResults(for: test, userEmail: email, token: token)
-                    }
-                }
-            }
+            .refreshable { refresh() }   // pull to refresh
+            .onAppear { refresh() }      // load on open
         }
-    }
-
-    private func bulletList(_ lines: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(lines, id: \.self) { line in
-                HStack(alignment: .top, spacing: 8) {
-                    Text("•").bold()
-                    Text(line).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .font(.body)
-        .foregroundColor(.primary)
     }
 }
 
+// MARK: - Bottom bar
 
-// MARK: - Detailed content mapping
+private extension TestDetailView {
+    var bottomActionBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                showRunner = true
+            } label: {
+                Text("Start Test")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.teal)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+
+            Button {
+                showLog = true
+            } label: {
+                Text("Log Result")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(.tertiarySystemFill))
+                    .foregroundStyle(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+    }
+}
+
+// MARK: - Formatting + refresh helpers
+
+private extension TestDetailView {
+    func refresh() {
+        Task {
+            if let email = userViewModel.userProfile?.email,
+               let token = userViewModel.accessToken, !token.isEmpty {
+                try? await testsVM.refreshResults(for: test, userEmail: email, token: token)
+            }
+        }
+    }
+
+    func formattedBest(_ results: [TestResult]) -> String {
+        guard let best = results.map({ $0.value }).max() else { return "—" }
+        return String(format: "%.1f", best)
+    }
+
+    func formattedLatest(_ results: [TestResult]) -> String {
+        guard let latest = results.last?.value else { return "—" }
+        return String(format: "%.1f", latest)
+    }
+
+    func trendString(_ results: [TestResult]) -> String {
+        guard results.count >= 2 else { return "—" }
+        let first = results.first!.value
+        let last  = results.last!.value
+        if last > first { return "up" }
+        if last < first { return "down" }
+        return "flat"
+    }
+}
+
+// MARK: - Detailed content mapping (unchanged logic)
+
 private struct DetailedContent {
     var title: String?
     var purpose: String?
@@ -220,7 +322,6 @@ private extension TestDetailView {
     var content: DetailedContent {
         let n = test.name.lowercased()
 
-        // Half-crimp (two-arm)
         if n.contains("half crimp") {
             return DetailedContent(
                 title: "Finger Strength Test — Half Crimp (two-arm)",
@@ -245,7 +346,7 @@ Stand on a box so you can load gradually, then lift feet.
                 recording: [
                     "Total load (kg) = bodyweight ± added/assisted.",
                     "% bodyweight = Total load / bodyweight × 100.",
-                    "Log total load as the numeric value; put added/assisted weight in notes if you like (e.g., “+22.5 kg” or “−10 kg assist”)."
+                    "Log total load as the numeric value; add notes like “+22.5 kg” or “−10 kg assist”."
                 ],
                 safety: [
                     "Increase in small increments; if fingers start to open, lower immediately.",
@@ -256,7 +357,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // Open Grip (two-arm)
         if n.contains("open grip") {
             return DetailedContent(
                 title: "Open Grip Test — Four Fingers (two-arm)",
@@ -284,7 +384,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // Front-3 (two-arm)
         if n.contains("front-3") || n.contains("front 3") {
             return DetailedContent(
                 title: "Front-3 Open Drag Test (two-arm)",
@@ -306,7 +405,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // One-arm
         if n.contains("one arm") || n.contains("one-arm") {
             return DetailedContent(
                 title: "Finger Strength Test — One Arm",
@@ -335,7 +433,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // Lactate curve (7:3)
         if n.contains("lactate curve") {
             return DetailedContent(
                 title: "Lactate Curve Test — 7:3",
@@ -356,7 +453,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // Max Moves
         if n.contains("max moves") {
             return DetailedContent(
                 title: "Max Moves — Foot-On Campus",
@@ -377,7 +473,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // Power Endurance — 75%
         if n.contains("power endurance") {
             return DetailedContent(
                 title: "Power Endurance — 75% (7:3)",
@@ -398,7 +493,6 @@ Stand on a box so you can load gradually, then lift feet.
             )
         }
 
-        // Weighted Pull-up
         if n.contains("weighted pull") {
             return DetailedContent(
                 title: "Weighted Pull-Up — 2RM",

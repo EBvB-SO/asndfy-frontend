@@ -18,16 +18,19 @@ struct LogResultSheet: View {
     @State private var date: Date = Date()
     @State private var notes: String = ""
     @State private var errorBanner: String?
+    @State private var isSaving = false
     
     var body: some View {
         NavigationStack {
             Form {
                 Section("Result") {
-                    HStack {
+                    HStack(spacing: 8) {
                         Text("Value")
                         Spacer()
-                        TextField("0", value: $value, format: .number)
+                        TextField("0", value: $value, format: .number)   // localised decimal support
                             .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(minWidth: 72)                         // stops layout jump
                         Text(test.unit ?? "kg")
                             .foregroundColor(.secondary)
                     }
