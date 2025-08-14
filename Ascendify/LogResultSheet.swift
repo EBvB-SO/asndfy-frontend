@@ -9,9 +9,9 @@ import SwiftUI
 
 struct LogResultSheet: View {
     let test: TestDefinition
+    var onSaved: (() -> Void)?
     @EnvironmentObject var userViewModel: UserViewModel
     @Environment(\.dismiss) private var dismiss
-    var onSaved: (() -> Void)?
     @ObservedObject private var vm = TestsViewModel.shared
     
     @State private var value: Double = 0
@@ -78,7 +78,7 @@ struct LogResultSheet: View {
                 try? await vm.loadResults(for: test, userEmail: email, token: token)
                 
                 dismiss()
-                onSaved?()   // 👈 trigger refresh in TestDetailView
+                onSaved?()
             } catch {
                 errorBanner = "Failed to save: \(prettyNetworkError(error))"
             }

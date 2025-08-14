@@ -33,9 +33,7 @@ private extension JSONDecoder {
                 debugDescription: "Unrecognized date format: \(s)"
             )
         }
-
-        dec.keyDecodingStrategy = .convertFromSnakeCase   // 👈 ADD THIS LINE
-
+        dec.keyDecodingStrategy = .convertFromSnakeCase
         return dec
     }
 }

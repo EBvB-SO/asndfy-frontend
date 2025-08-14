@@ -31,13 +31,21 @@ struct TestResult: Identifiable, Codable {
     let value: Double
     let notes: String?
 
-    // Map JSON "test_id" -> Swift "testId"
     enum CodingKeys: String, CodingKey {
         case id
         case testId = "test_id"
         case date
         case value
         case notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id     = (try? container.decode(Int.self, forKey: .id))    ?? -1
+        testId = (try? container.decode(Int.self, forKey: .testId)) ?? -1
+        date   = try container.decode(Date.self, forKey: .date)
+        value  = try container.decode(Double.self, forKey: .value)
+        notes  = try? container.decodeIfPresent(String.self, forKey: .notes)
     }
 }
 
