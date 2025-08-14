@@ -86,7 +86,6 @@ struct TestDetailView: View {
 
                             HStack(spacing: 8) {
                                 Pill(text: results.isEmpty ? "No results" : "\(results.count) results")
-                                if let unit = test.unit, !unit.isEmpty { Pill(text: unit) }
                             }
                         }
                         .padding(16)
