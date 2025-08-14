@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Charts
 
 private struct SectionHeader: View {
     let text: String
@@ -23,7 +24,8 @@ struct TestDetailView: View {
     @State private var showRunner = false
     @State private var showLog = false
     @EnvironmentObject var userViewModel: UserViewModel
-    
+    @ObservedObject private var testsVM = TestsViewModel.shared
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -69,10 +71,45 @@ struct TestDetailView: View {
                         bulletList(safety)
                     }
 
+                    // MARK: Results Section
                     SectionHeader(text: "Results")
-                    Text("No results yet")
-                        .foregroundColor(.secondary)
+
+                    if let results = testsVM.resultsByTest[test.id], !results.isEmpty {
+                        // Results list
+                        ForEach(results) { result in
+                            HStack {
+                                Text(result.dateString)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text("\(result.value, specifier: "%.1f") \(test.unit ?? "")")
+                                    .font(.body)
+                                    .fontWeight(.semibold)
+                            }
+                            .padding(.vertical, 4)
+                            Divider()
+                        }
+
+                        // Optional: chart
+                        SectionHeader(text: "Progress")
+                        Chart(results) {
+                            LineMark(
+                                x: .value("Date", $0.date),
+                                y: .value("Value", $0.value)
+                            )
+                            PointMark(
+                                x: .value("Date", $0.date),
+                                y: .value("Value", $0.value)
+                            )
+                        }
+                        .frame(height: 200)
                         .padding(.bottom, 12)
+
+                    } else {
+                        Text("No results yet")
+                            .foregroundColor(.secondary)
+                            .padding(.bottom, 12)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 80)
@@ -118,7 +155,6 @@ struct TestDetailView: View {
                 .background(.ultraThinMaterial)
             }
             .sheet(isPresented: $showRunner) {
-                // When timer finishes and the user taps “Log Result”, jump to the log sheet.
                 TestRunnerView(
                     kind: content.kind,
                     title: content.title ?? test.name,
@@ -129,8 +165,25 @@ struct TestDetailView: View {
                 )
             }
             .sheet(isPresented: $showLog) {
-                LogResultSheet(test: test)
-                    .environmentObject(userViewModel)
+                LogResultSheet(test: test, onSaved: {
+                    // After the sheet saves, refresh the results on this screen
+                    Task {
+                        if let email = userViewModel.userProfile?.email,
+                           let token = userViewModel.accessToken, !token.isEmpty {
+                            try? await testsVM.refreshResults(for: test, userEmail: email, token: token)
+                        }
+                    }
+                })
+                .environmentObject(userViewModel)
+            }
+            .onAppear {
+                // Auto-refresh results when detail opens
+                Task {
+                    if let email = userViewModel.userProfile?.email,
+                       let token = userViewModel.accessToken, !token.isEmpty {
+                        try? await testsVM.refreshResults(for: test, userEmail: email, token: token)
+                    }
+                }
             }
         }
     }
@@ -148,6 +201,7 @@ struct TestDetailView: View {
         .foregroundColor(.primary)
     }
 }
+
 
 // MARK: - Detailed content mapping
 private struct DetailedContent {

@@ -30,6 +30,15 @@ struct TestResult: Identifiable, Codable {
     let date: Date
     let value: Double
     let notes: String?
+
+    // Map JSON "test_id" -> Swift "testId"
+    enum CodingKeys: String, CodingKey {
+        case id
+        case testId = "test_id"
+        case date
+        case value
+        case notes
+    }
 }
 
 extension TestResult {

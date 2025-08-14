@@ -11,8 +11,6 @@ import SwiftUI
 // MARK: - Decoders
 
 private extension JSONDecoder {
-    /// Decoder for results where the backend may return either a date-only string (`yyyy-MM-dd`)
-    /// or a full ISO8601 timestamp. We accept both.
     static func resultsDecoder() -> JSONDecoder {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .custom { decoder in
@@ -21,27 +19,27 @@ private extension JSONDecoder {
 
             // Try date-only (UTC, POSIX)
             let df = DateFormatter()
-            df.calendar = Calendar(identifier: .iso8601)
-            df.locale   = Locale(identifier: "en_US_POSIX")
+            df.calendar = .init(identifier: .iso8601)
+            df.locale   = .init(identifier: "en_US_POSIX")
             df.timeZone = TimeZone(secondsFromGMT: 0)
             df.dateFormat = "yyyy-MM-dd"
-            if let d = df.date(from: s) {
-                return d
-            }
+            if let d = df.date(from: s) { return d }
 
             // Fallback to full ISO8601
-            if let d = ISO8601DateFormatter().date(from: s) {
-                return d
-            }
+            if let d = ISO8601DateFormatter().date(from: s) { return d }
 
             throw DecodingError.dataCorruptedError(
                 in: container,
                 debugDescription: "Unrecognized date format: \(s)"
             )
         }
+
+        dec.keyDecodingStrategy = .convertFromSnakeCase   // 👈 ADD THIS LINE
+
         return dec
     }
 }
+
 
 // MARK: - Networking errors
 
@@ -118,18 +116,19 @@ final class TestsViewModel: ObservableObject {
 
     /// Load results for a given test for a specific user.
     func loadResults(for test: TestDefinition, userEmail: String, token: String) async {
-        guard let url = URL(string: "\(baseURL)/tests/users/\(userEmail)/\(test.id)/results") else { return }
+        let encodedEmail = userEmail.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userEmail
+        guard let url = URL(string: "\(baseURL)/tests/users/\(encodedEmail)/\(test.id)/results") else { return }
+
         var req = URLRequest(url: url)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: req)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 throw URLError(.badServerResponse)
             }
 
-            // <— Handle empty body gracefully
+            // Handle empty body gracefully
             if data.isEmpty {
                 self.resultsByTest[test.id] = []
                 return
@@ -203,7 +202,7 @@ final class TestsViewModel: ObservableObject {
     // MARK: Helpers
 
     /// Convenience to reload results and surface any error in `errorMessage`.
-    private func refreshResults(for test: TestDefinition, userEmail: String, token: String) async throws {
+    func refreshResults(for test: TestDefinition, userEmail: String, token: String) async throws {
         let encodedEmail = userEmail.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userEmail
         guard let url = URL(string: "\(baseURL)/tests/users/\(encodedEmail)/\(test.id)/results") else {
             throw TestsNetworkError.badURL
@@ -215,6 +214,12 @@ final class TestsViewModel: ObservableObject {
         do {
             let (data, response) = try await session.data(for: req)
             try Self.assertOK(response)
+
+            // Handle an empty body gracefully; treat it as “no results”
+            if data.isEmpty {
+                resultsByTest[test.id] = []
+                return
+            }
 
             let decoder = JSONDecoder.resultsDecoder()
             let decoded = try decoder.decode([TestResult].self, from: data)
@@ -228,6 +233,7 @@ final class TestsViewModel: ObservableObject {
             throw wrapped
         }
     }
+
 
     /// Throws if the HTTPURLResponse is not in the 2xx range.
     private static func assertOK(_ response: URLResponse) throws {
