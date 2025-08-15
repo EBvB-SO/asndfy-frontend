@@ -343,15 +343,45 @@ final class SessionTrackingManager: ObservableObject {
         autoSyncTimer?.invalidate()
         autoSyncTimer = nil
     }
+    
+    // MARK: - Server initializer helper (add this inside SessionTrackingManager)
+    private func initializeSessionsOnServer(planId: String) async -> Bool {
+        guard let email = await currentEmail(),
+              networkStatus == .connected else { return false }
 
+        let lowerPlanId = planId.lowercased()
+        let urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/sessions/initialize"
+        guard let url = URL(string: urlString) else { return false }
+
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            await addAuthHeader(&request)
+
+            let (_, response) = try await URLSession.shared.authenticatedData(for: request)
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                return true
+            }
+        } catch {
+            print("❌ initializeSessionsOnServer error: \(error)")
+        }
+        return false
+    }
+    
     // MARK: - Plan Initialization
+    // MARK: - Plan Initialization (replace your entire function with this)
     func initializeTrackingForPlan(planId: String, plan: PlanModel) {
         Task {
             print("🔄 Initializing tracking for plan: \(planId) (server-first with merge)")
 
-            var serverReturnedSessions = false
+            // If we already have local sessions for this plan, don’t regenerate
+            if let existingLocal = sessionTracking[planId], !existingLocal.isEmpty {
+                print("ℹ️ Local sessions already exist (\(existingLocal.count)) — skipping re-init")
+                return
+            }
 
-            // 1️⃣ Try to refresh from server
+            // 1) Try to pull what the server already has
+            var serverReturnedSessions = false
             if networkStatus == .connected {
                 await refreshSessions(for: planId)
                 if let existing = sessionTracking[planId], !existing.isEmpty {
@@ -359,35 +389,47 @@ final class SessionTrackingManager: ObservableObject {
                 }
             }
 
-            // 2️⃣ If server gave us sessions, merge with local
+            // 2) If server gave us sessions, ensure locals are set up and return
             if serverReturnedSessions {
-                if let local = sessionTracking[planId], !local.isEmpty {
-                    let beforeCount = local.count
-                    if let serverSessions = sessionTracking[planId] {
-                        mergeServerSessions(serverSessions, for: planId)
-                        print("🔄 Merged server sessions with \(beforeCount) local sessions for plan \(planId)")
-                    }
-                }
-                // Ensure all merged sessions are valid
                 for session in sessionTracking[planId] ?? [] {
                     ensureSessionExists(planId: planId, sessionId: session.id)
                 }
-                // Ensure exercise history exists
                 if exerciseHistory[planId] == nil {
                     exerciseHistory[planId] = []
                     saveExerciseHistory()
                 }
-                print("✅ Using merged \(sessionTracking[planId]?.count ?? 0) sessions for plan \(planId)")
+                print("✅ Using server sessions (\(sessionTracking[planId]?.count ?? 0)) for plan \(planId)")
                 return
             }
 
-            // 3️⃣ If offline or server has nothing, generate sessions locally
-            print("⚠️ No server sessions found (or offline) → generating locally")
+            // 3) Ask the server to initialize sessions from the plan's weekly_schedule
+            var initializedOnServer = false
+            if networkStatus == .connected {
+                print("⚠️ No server sessions → attempting server initialize …")
+                initializedOnServer = await initializeSessionsOnServer(planId: planId)
+
+                if initializedOnServer {
+                    // Re-fetch from server after initialization
+                    await refreshSessions(for: planId)
+                    if let serverNow = sessionTracking[planId], !serverNow.isEmpty {
+                        for s in serverNow { ensureSessionExists(planId: planId, sessionId: s.id) }
+                        if exerciseHistory[planId] == nil {
+                            exerciseHistory[planId] = []
+                            saveExerciseHistory()
+                        }
+                        print("✅ Server initialized \(serverNow.count) sessions for plan \(planId)")
+                        return
+                    }
+                }
+            }
+
+            // 4) Fallback: generate sessions locally from the UI plan (last resort)
+            print("⚠️ Server initialize unavailable → generating locally")
             var allSessions: [SessionTracking] = []
 
             for phase in plan.weeks {
                 if let weekRange = phase.title.extractWeekRange() {
-                    for weekNum in weekRange {            // works for Range<Int> and ClosedRange<Int>
+                    for weekNum in weekRange {
                         for session in phase.sessions {
                             if let day = extractDayFromSessionTitle(session.sessionTitle) {
                                 let tracking = SessionTracking(
@@ -403,7 +445,7 @@ final class SessionTrackingManager: ObservableObject {
                 }
             }
 
-            // After generating locally
+            // Persist local generation
             sessionTracking[planId] = allSessions
             exerciseHistory[planId] = []
             saveSessionTracking()
@@ -411,7 +453,7 @@ final class SessionTrackingManager: ObservableObject {
 
             print("✅ Created \(allSessions.count) local sessions for plan \(planId)")
 
-            // 4️⃣ If online, push to server and validate sessions
+            // 5) If we’re online, push the generated set to the server
             if networkStatus == .connected {
                 await syncSessionsToServer(planId: planId, sessions: allSessions)
                 for session in allSessions {
@@ -420,7 +462,6 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
 
     // MARK: - Exercise Tracking
     func generateExerciseKey(planId: String, sessionId: UUID, title: String) -> String {
