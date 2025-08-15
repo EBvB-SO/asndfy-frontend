@@ -329,37 +329,42 @@ extension GeneratedPlansManager {
         // and sessions[] with (day, focus, details, session_order)
 
         var phasePayloads: [ServerSaveRequest.Phase] = []
+        var globalSessionCounter = 0
 
         for (wIndex, week) in planModel.weeks.enumerated() {
-
             var sessionPayloads: [ServerSaveRequest.Phase.Session] = []
 
-            for (sIndex, session) in week.sessions.enumerated() {
-                // Build details text
-                let warmupLine   = session.warmUp.isEmpty ? "" : "Warm-up: " + session.warmUp.joined(separator: ", ")
-                let mainLine     = session.mainWorkout.isEmpty ? "" : "Main: " + session.mainWorkout.map { $0.title }.joined(separator: ", ")
-                let cooldownLine = session.coolDown.isEmpty ? "" : "Cool-down: " + session.coolDown.joined(separator: ", ")
-                let detailsParts = [warmupLine, mainLine, cooldownLine].filter { !$0.isEmpty }
-                let details      = detailsParts.joined(separator: "\n")
+            for session in week.sessions {
+                // Prefer the day baked into the title (e.g. "Monday: …"), else roll through Mon→Sun globally
+                let dayText: String
+                if let day = SessionTrackingManager.shared.extractDayFromSessionTitle(session.sessionTitle) {
+                    dayText = day
+                } else {
+                    dayText = weekdayNames[globalSessionCounter % weekdayNames.count]
+                }
 
-                // DAY: use a short, safe label (fits VARCHAR(50))
-                let dayText = weekdayNames[sIndex % weekdayNames.count]  // "Monday", "Tuesday", ...
-
-                // FOCUS: first main workout title if present, otherwise session title; then truncate
+                // Focus line (trim to keep it tidy)
                 var focus = session.mainWorkout.first?.title ?? session.sessionTitle
-                if focus.count > 50 { focus = String(focus.prefix(50)) } // DB has VARCHAR(255); 50 keeps us safe
+                if focus.count > 50 { focus = String(focus.prefix(50)) }
+
+                // Details block
+                let warmupLine   = session.warmUp.isEmpty     ? "" : "Warm-up: " + session.warmUp.joined(separator: ", ")
+                let mainLine     = session.mainWorkout.isEmpty ? "" : "Main: " + session.mainWorkout.map { $0.title }.joined(separator: ", ")
+                let cooldownLine = session.coolDown.isEmpty   ? "" : "Cool-down: " + session.coolDown.joined(separator: ", ")
+                let details = [warmupLine, mainLine, cooldownLine].filter { !$0.isEmpty }.joined(separator: "\n")
+
+                // Advance the global counter so day names don’t reset each week
+                globalSessionCounter += 1
 
                 sessionPayloads.append(
                     .init(day: dayText,
                           focus: focus,
                           details: details,
-                          session_order: sIndex + 1)
+                          session_order: globalSessionCounter) // globally increasing order
                 )
             }
 
-            // We don't have a week description field; use the plan's trainingOverview (or blank)
             let weekDescription = planModel.trainingOverview.isEmpty ? "" : planModel.trainingOverview
-
             phasePayloads.append(
                 .init(phase_name: week.title,
                       description: weekDescription,

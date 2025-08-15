@@ -387,7 +387,7 @@ final class SessionTrackingManager: ObservableObject {
 
             for phase in plan.weeks {
                 if let weekRange = phase.title.extractWeekRange() {
-                    for weekNum in weekRange.lowerBound..<weekRange.upperBound {
+                    for weekNum in weekRange {            // works for Range<Int> and ClosedRange<Int>
                         for session in phase.sessions {
                             if let day = extractDayFromSessionTitle(session.sessionTitle) {
                                 let tracking = SessionTracking(
@@ -592,8 +592,8 @@ final class SessionTrackingManager: ObservableObject {
     
     func markSessionCompleted(planId: String, sessionId: UUID, completed: Bool, notes: String) {
         print("📝 Marking session \(sessionId) as completed: \(completed)")
-        
-        // Update locally first
+        let now = Date()
+
         DispatchQueue.main.async {
             guard var sessions = self.sessionTracking[planId],
                   let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
@@ -603,8 +603,8 @@ final class SessionTrackingManager: ObservableObject {
 
             sessions[index].isCompleted = completed
             sessions[index].notes = notes
-            sessions[index].completionDate = completed ? Date() : nil
-            sessions[index].updatedAt = Date()
+            sessions[index].completionDate = completed ? now : nil
+            sessions[index].updatedAt = now
 
             self.sessionTracking[planId] = sessions
             self.saveSessionTracking()
@@ -612,13 +612,12 @@ final class SessionTrackingManager: ObservableObject {
             self.objectWillChange.send()
         }
 
-        // Queue for sync
         queuePendingSessionUpdate(
             planId: planId,
             sessionId: sessionId,
             completed: completed,
             notes: notes,
-            completionDate: completed ? Date() : nil
+            completionDate: completed ? now : nil
         )
     }
 
@@ -798,108 +797,109 @@ final class SessionTrackingManager: ObservableObject {
     }
     
     // MARK: - Server Synchronization (SIMPLIFIED)
-    private func syncExerciseToServer(tracking: ExerciseTracking) async {
-        guard let email = await currentEmail(),
-              networkStatus == .connected else {
+    // Upserts via POST. Returns true on success, false on failure.
+    // Also updates local sync flags via updateExerciseSyncStatus.
+    private func syncExerciseToServer(tracking: ExerciseTracking) async -> Bool {
+        guard let email = await currentEmail(), networkStatus == .connected else {
             print("❌ Cannot sync exercise - offline or no user")
-            updateExerciseSyncStatus(trackingId: tracking.id, planId: tracking.planId, isSynced: false, error: "Offline")
-            return
+            await MainActor.run {
+                updateExerciseSyncStatus(trackingId: tracking.id,
+                                         planId: tracking.planId,
+                                         isSynced: false,
+                                         error: "Offline")
+            }
+            return false
         }
 
-        let lowerPlanId = tracking.planId.lowercased()
-        let lowerExerciseId = tracking.id.uuidString.lowercased()
-        
-        // Check if this is an update (exercise already exists on server)
-        let isUpdate = tracking.lastSyncAttempt != nil
-        
-        let urlString: String
-        let httpMethod: String
-        
-        if isUpdate {
-            // Update existing exercise
-            urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/exercises/\(lowerExerciseId)"
-            httpMethod = "PUT"
-        } else {
-            // Create new exercise
-            urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/exercises"
-            httpMethod = "POST"
-        }
-        
+        let planIdLower = tracking.planId.lowercased()
+        let urlString = "\(baseURL)/user/\(email)/plans/\(planIdLower)/exercises"
         guard let url = URL(string: urlString) else {
             print("❌ Invalid exercise sync URL")
-            updateExerciseSyncStatus(trackingId: tracking.id, planId: tracking.planId, isSynced: false, error: "Invalid URL")
-            return
+            await MainActor.run {
+                updateExerciseSyncStatus(trackingId: tracking.id,
+                                         planId: tracking.planId,
+                                         isSynced: false,
+                                         error: "Invalid URL")
+            }
+            return false
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = httpMethod
+        request.httpMethod = "POST" // backend upserts on POST
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         await addAuthHeader(&request)
 
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
 
-        // Extract the actual exercise title from notes for server
-        let actualTitle = extractExerciseTitle(from: tracking.notes)
-            
         let payload: [String: Any] = [
-            "id": tracking.id.uuidString.lowercased(),
+            "id": tracking.id.uuidString.lowercased(),           // include id so server updates if it exists
             "session_id": tracking.sessionId.uuidString.lowercased(),
             "exercise_id": tracking.exerciseId.uuidString.lowercased(),
-            "date": dateFormatter.string(from: tracking.date),  // This will now use the updated date
+            "date": df.string(from: tracking.date),
             "notes": tracking.notes
         ]
 
-        print("📤 Exercise sync payload (\(httpMethod)): \(payload)")
-        
+        print("📤 Exercise sync payload (POST): \(payload)")
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (data, response) = try await URLSession.shared.authenticatedData(for: request)
-                
-            if let httpResponse = response as? HTTPURLResponse {
-                if (200...299).contains(httpResponse.statusCode) {
-                    print("✅ Exercise \(isUpdate ? "updated" : "synced") to server: \(tracking.id)")
-                    await MainActor.run {
-                        updateExerciseSyncStatus(trackingId: tracking.id, planId: tracking.planId, isSynced: true, error: nil)
-                    }
-                } else {
-                    let errorMsg = "HTTP \(httpResponse.statusCode)"
-                    let responseString = String(data: data, encoding: .utf8) ?? "No response body"
-                    print("❌ Exercise sync failed: \(errorMsg)")
-                    print("❌ Response: \(responseString)")
-                    await MainActor.run {
-                        updateExerciseSyncStatus(trackingId: tracking.id, planId: tracking.planId, isSynced: false, error: errorMsg)
-                    }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            if (200...299).contains(status) {
+                await MainActor.run {
+                    updateExerciseSyncStatus(trackingId: tracking.id,
+                                             planId: tracking.planId,
+                                             isSynced: true,
+                                             error: nil)
                 }
+                print("✅ Exercise synced: \(tracking.id)")
+                return true
+            } else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                print("❌ Exercise sync failed: HTTP \(status) \(body)")
+                await MainActor.run {
+                    updateExerciseSyncStatus(trackingId: tracking.id,
+                                             planId: tracking.planId,
+                                             isSynced: false,
+                                             error: "HTTP \(status)")
+                }
+                return false
             }
         } catch {
             print("❌ Exercise sync error: \(error)")
             await MainActor.run {
-                updateExerciseSyncStatus(trackingId: tracking.id, planId: tracking.planId, isSynced: false, error: error.localizedDescription)
+                updateExerciseSyncStatus(trackingId: tracking.id,
+                                         planId: tracking.planId,
+                                         isSynced: false,
+                                         error: error.localizedDescription)
             }
+            return false
         }
     }
 
+    // Return true on success, false on any failure.
+    // NOTE: caller decides what to do with failures (e.g., re-queue in processPendingUpdates()).
     private func syncSessionToServer(
         planId: String,
         sessionId: UUID,
         completed: Bool,
         notes: String,
         completionDate: Date?
-    ) async {
+    ) async -> Bool {
         guard let email = await currentEmail(),
               networkStatus == .connected else {
             print("❌ Cannot sync session - offline or no user")
-            return
+            return false
         }
 
         let lowerPlanId = planId.lowercased()
         let lowerSessionId = sessionId.uuidString.lowercased()
-            
         let urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/sessions/\(lowerSessionId)"
         guard let url = URL(string: urlString) else {
             print("❌ Invalid session sync URL")
-            return
+            return false
         }
 
         var request = URLRequest(url: url)
@@ -907,27 +907,29 @@ final class SessionTrackingManager: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         await addAuthHeader(&request)
 
-        // CRITICAL FIX: Use snake_case field names
+        // Use snake_case to match backend
         let payload: [String: Any] = [
-            "is_completed": completed,      // FIXED: was "isCompleted"
+            "is_completed": completed,
             "notes": notes,
-            "completion_date": completionDate?.toISO8601String() as Any  // FIXED: was "completionDate"
+            "completion_date": completionDate?.toISO8601String() as Any
         ]
-            
-        print("📤 Session sync payload: \(payload)") // Debug log
-        
+
+        print("📤 Session sync payload: \(payload)")
+
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
-            
-            if let httpResponse = response as? HTTPURLResponse,
-               (200...299).contains(httpResponse.statusCode) {
+            if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 print("✅ Session synced to server: \(sessionId)")
+                return true
             } else {
-                print("❌ Session sync failed with status: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("❌ Session sync failed with status: \(status)")
+                return false
             }
         } catch {
             print("❌ Session sync error: \(error)")
+            return false
         }
     }
 
@@ -935,13 +937,12 @@ final class SessionTrackingManager: ObservableObject {
         guard let email = await currentEmail(),
               networkStatus == .connected else {
             print("❌ Cannot delete exercise - offline or no user")
-            queueExerciseDeletion(tracking: tracking)
+            queueExerciseDeletion(tracking: tracking)    // optional; see note below
             return
         }
-        
+
         let lowerPlanId = tracking.planId.lowercased()
         let lowerTrackingId = tracking.id.uuidString.lowercased()
-            
         let urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/exercises/\(lowerTrackingId)"
         guard let url = URL(string: urlString) else {
             print("❌ Invalid exercise delete URL")
@@ -951,26 +952,27 @@ final class SessionTrackingManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         await addAuthHeader(&request)
-            
+
         print("🗑️ Deleting exercise from server: \(lowerTrackingId)")
 
         do {
-            let (data, response) = try await URLSession.shared.authenticatedData(for: request)
-                
-            if let httpResponse = response as? HTTPURLResponse {
-                if (200...299).contains(httpResponse.statusCode) {
-                    print("✅ Exercise deleted from server: \(tracking.id)")
-                } else {
-                    print("❌ Exercise deletion failed with status: \(httpResponse.statusCode)")
-                    if let responseString = String(data: data, encoding: .utf8) {
-                        print("❌ Response: \(responseString)")
-                    }
-                    // Could re-queue for retry here
-                }
+            let (_, response) = try await URLSession.shared.authenticatedData(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            switch status {
+            case 200...299:
+                print("✅ Exercise deleted from server: \(tracking.id)")
+            case 404:
+                // Treat as already-gone; success for our purposes.
+                print("ℹ️ Exercise not found on server (already deleted). Treating as success: \(tracking.id)")
+            default:
+                print("❌ Exercise deletion failed with status: \(status)")
+                // Optional: re-queue for retry if you want resilience
+                queueExerciseDeletion(tracking: tracking)
             }
         } catch {
             print("❌ Exercise deletion error: \(error)")
-            // Queue for retry when online
+            // Optional: re-queue for retry if offline/transient error
             queueExerciseDeletion(tracking: tracking)
         }
     }
@@ -1062,45 +1064,72 @@ final class SessionTrackingManager: ObservableObject {
 
     private func processPendingUpdates() async {
         guard networkStatus == .connected else { return }
-        
+
         print("🔄 Processing pending updates...")
         print("  - Session updates: \(pendingSessionUpdates.count)")
         print("  - Exercise updates: \(pendingExerciseUpdates.count)")
 
-        await MainActor.run {
-            self.isSyncing = true
-        }
+        await MainActor.run { self.isSyncing = true }
 
-        // Process session updates
-        let sessionUpdates = pendingSessionUpdates
-        pendingSessionUpdates.removeAll()
+        // --- Sessions ---
+        let sessionSnapshot = pendingSessionUpdates   // snapshot what we plan to send
+        pendingSessionUpdates.removeAll()             // clear so new items can be enqueued concurrently
         savePendingSessionUpdates()
 
-        for update in sessionUpdates {
-            await syncSessionToServer(
-                planId: update.planId,
-                sessionId: update.sessionId,
-                completed: update.completed,
-                notes: update.notes,
-                completionDate: update.completionDate
+        var failedSessions: [PendingSessionUpdate] = []
+        for u in sessionSnapshot {
+            let ok = await syncSessionToServer(
+                planId: u.planId,
+                sessionId: u.sessionId,
+                completed: u.completed,
+                notes: u.notes,
+                completionDate: u.completionDate
             )
+            if !ok {
+                var retry = u
+                retry.retryCount += 1
+                if retry.retryCount <= maxRetryCount {
+                    failedSessions.append(retry)
+                } else {
+                    print("⏭️ Dropping session update after \(retry.retryCount) attempts: \(u.sessionId)")
+                }
+            }
         }
 
-        // Process exercise updates
-        let exerciseUpdates = pendingExerciseUpdates
+        // merge failures with any new items that got queued during the run
+        let newlyQueuedSessions = pendingSessionUpdates
+        pendingSessionUpdates = failedSessions + newlyQueuedSessions
+        savePendingSessionUpdates()
+
+        // --- Exercises ---
+        let exerciseSnapshot = pendingExerciseUpdates
         pendingExerciseUpdates.removeAll()
         savePendingExerciseUpdates()
 
-        for update in exerciseUpdates {
-            await syncExerciseToServer(tracking: update.tracking)
+        var failedExercises: [PendingExerciseUpdate] = []
+        for u in exerciseSnapshot {
+            let ok = await syncExerciseToServer(tracking: u.tracking)
+            if !ok {
+                var retry = u
+                retry.retryCount += 1
+                if retry.retryCount <= maxRetryCount {
+                    failedExercises.append(retry)
+                } else {
+                    print("⏭️ Dropping exercise update after \(retry.retryCount) attempts: \(u.tracking.id)")
+                }
+            }
         }
+
+        let newlyQueuedExercises = pendingExerciseUpdates
+        pendingExerciseUpdates = failedExercises + newlyQueuedExercises
+        savePendingExerciseUpdates()
 
         await MainActor.run {
             self.isSyncing = false
             self.lastSyncTime = Date()
             self.saveLastSyncTime()
         }
-        
+
         print("✅ Finished processing pending updates")
     }
 
