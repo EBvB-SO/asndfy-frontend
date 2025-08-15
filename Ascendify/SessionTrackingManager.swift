@@ -86,35 +86,35 @@ struct PendingExerciseUpdate: Codable {
 // MARK: - Main Session Tracking Manager
 final class SessionTrackingManager: ObservableObject {
     static let shared = SessionTrackingManager()
-
+    
     // Published properties
     @Published private(set) var sessionTracking: [String: [SessionTracking]] = [:]
     @Published private(set) var exerciseHistory: [String: [ExerciseTracking]] = [:]
     @Published var networkStatus: NetworkStatus = .unknown
     @Published var isSyncing: Bool = false
     @Published var lastSyncTime: Date? = nil
-
+    
     // Storage keys
     private func storageKey() -> String {
         guard let email = currentUserEmail else { return "session_tracking_data" }
         return "session_tracking_data_\(email)"
     }
-
+    
     private func exerciseHistoryKey() -> String {
         guard let email = currentUserEmail else { return "exercise_tracking_data" }
         return "exercise_tracking_data_\(email)"
     }
-
+    
     private func pendingSessionUpdatesKey() -> String {
         guard let email = currentUserEmail else { return "pending_session_updates" }
         return "pending_session_updates_\(email)"
     }
-
+    
     private func pendingExerciseUpdatesKey() -> String {
         guard let email = currentUserEmail else { return "pending_exercise_updates" }
         return "pending_exercise_updates_\(email)"
     }
-
+    
     private func lastSyncTimeKey() -> String {
         guard let email = currentUserEmail else { return "last_sync_time" }
         return "last_sync_time_\(email)"
@@ -127,35 +127,38 @@ final class SessionTrackingManager: ObservableObject {
             UserViewModel.shared.userProfile?.email
         }
     }
-
+    
     @inline(__always)
     private func addAuthHeader(_ request: inout URLRequest) async {
         await MainActor.run {
             request.addAuthHeader()
         }
     }
-
+    
     // Configuration
     private let baseURL = "http://127.0.0.1:8001"
     private let maxRetryCount = 3
     private var currentUserEmail: String?
-
+    
     
     // Pending updates
     private var pendingSessionUpdates: [PendingSessionUpdate] = []
     private var pendingExerciseUpdates: [PendingExerciseUpdate] = []
-
+    
+    // Pending deletions
+    private var pendingExerciseDeletions: [ExerciseTracking] = []
+    
     // Network monitoring
     private let networkMonitor = NWPathMonitor()
     private let monitorQueue = DispatchQueue(label: "com.ascendify.networkMonitor")
     private var autoSyncTimer: Timer?
-
+    
     private init() {
         loadAllData()
         setupNetworkMonitoring()
         startAutoSyncTimer()
     }
-
+    
     deinit {
         stopAutoSyncTimer()
         networkMonitor.cancel()
@@ -165,7 +168,7 @@ final class SessionTrackingManager: ObservableObject {
         currentUserEmail = email.lowercased()
         loadAllData()
     }
-
+    
     func clearForSignOut() {
         currentUserEmail = nil
         clearAllData()
@@ -180,7 +183,7 @@ final class SessionTrackingManager: ObservableObject {
                 .replacingOccurrences(of: "]", with: "")
             return title
         }
-            
+        
         // Fallback: try to extract from existing format
         if notes.contains(" completed") || notes.contains(" Completed") {
             let components = notes.components(separatedBy: "] ")
@@ -193,29 +196,35 @@ final class SessionTrackingManager: ObservableObject {
                 }
             }
         }
-            
+        
         return "Unknown Exercise"
     }
-
+    
+    private func pendingExerciseDeletionsKey() -> String {
+        guard let email = currentUserEmail else { return "pending_exercise_deletions" }
+        return "pending_exercise_deletions_\(email)"
+    }
+    
     // MARK: - Data Loading and Saving
     private func loadAllData() {
         guard currentUserEmail != nil else {
-            // Don’t load anything until a user is set
             sessionTracking.removeAll()
             exerciseHistory.removeAll()
             pendingSessionUpdates.removeAll()
             pendingExerciseUpdates.removeAll()
+            pendingExerciseDeletions.removeAll()
             lastSyncTime = nil
             return
         }
-
+        
         loadSessionTracking()
         loadExerciseHistory()
         loadPendingSessionUpdates()
         loadPendingExerciseUpdates()
+        loadPendingExerciseDeletions()
         loadLastSyncTime()
     }
-
+    
     private func loadSessionTracking() {
         guard let data = UserDefaults.standard.data(forKey: storageKey()) else { return }
         do {
@@ -228,7 +237,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error loading session tracking: \(error)")
         }
     }
-
+    
     private func saveSessionTracking() {
         do {
             let data = try jsonEncoder.encode(sessionTracking)
@@ -237,7 +246,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error saving session tracking: \(error)")
         }
     }
-
+    
     private func loadExerciseHistory() {
         guard let data = UserDefaults.standard.data(forKey: exerciseHistoryKey()) else { return }
         do {
@@ -250,7 +259,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error loading exercise history: \(error)")
         }
     }
-
+    
     private func saveExerciseHistory() {
         do {
             let data = try jsonEncoder.encode(exerciseHistory)
@@ -260,7 +269,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error saving exercise history: \(error)")
         }
     }
-
+    
     private func loadPendingSessionUpdates() {
         guard let data = UserDefaults.standard.data(forKey: pendingSessionUpdatesKey()) else { return }
         do {
@@ -270,7 +279,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error loading pending session updates: \(error)")
         }
     }
-
+    
     private func savePendingSessionUpdates() {
         do {
             let data = try jsonEncoder.encode(pendingSessionUpdates)
@@ -279,7 +288,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error saving pending session updates: \(error)")
         }
     }
-
+    
     private func loadPendingExerciseUpdates() {
         guard let data = UserDefaults.standard.data(forKey: pendingExerciseUpdatesKey()) else { return }
         do {
@@ -289,7 +298,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error loading pending exercise updates: \(error)")
         }
     }
-
+    
     private func savePendingExerciseUpdates() {
         do {
             let data = try jsonEncoder.encode(pendingExerciseUpdates)
@@ -298,15 +307,15 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Error saving pending exercise updates: \(error)")
         }
     }
-
+    
     private func loadLastSyncTime() {
         lastSyncTime = UserDefaults.standard.object(forKey: lastSyncTimeKey()) as? Date
     }
-
+    
     private func saveLastSyncTime() {
         UserDefaults.standard.set(lastSyncTime, forKey: lastSyncTimeKey())
     }
-
+    
     // MARK: - Network Monitoring
     func setupNetworkMonitoring() {
         networkMonitor.pathUpdateHandler = { [weak self] path in
@@ -328,7 +337,7 @@ final class SessionTrackingManager: ObservableObject {
         }
         networkMonitor.start(queue: monitorQueue)
     }
-
+    
     func startAutoSyncTimer() {
         stopAutoSyncTimer()
         autoSyncTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
@@ -338,7 +347,7 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
+    
     func stopAutoSyncTimer() {
         autoSyncTimer?.invalidate()
         autoSyncTimer = nil
@@ -348,16 +357,16 @@ final class SessionTrackingManager: ObservableObject {
     private func initializeSessionsOnServer(planId: String) async -> Bool {
         guard let email = await currentEmail(),
               networkStatus == .connected else { return false }
-
+        
         let lowerPlanId = planId.lowercased()
         let urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/sessions/initialize"
         guard let url = URL(string: urlString) else { return false }
-
+        
         do {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             await addAuthHeader(&request)
-
+            
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
             if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) {
                 return true
@@ -373,13 +382,13 @@ final class SessionTrackingManager: ObservableObject {
     func initializeTrackingForPlan(planId: String, plan: PlanModel) {
         Task {
             print("🔄 Initializing tracking for plan: \(planId) (server-first with merge)")
-
+            
             // If we already have local sessions for this plan, don’t regenerate
             if let existingLocal = sessionTracking[planId], !existingLocal.isEmpty {
                 print("ℹ️ Local sessions already exist (\(existingLocal.count)) — skipping re-init")
                 return
             }
-
+            
             // 1) Try to pull what the server already has
             var serverReturnedSessions = false
             if networkStatus == .connected {
@@ -388,7 +397,7 @@ final class SessionTrackingManager: ObservableObject {
                     serverReturnedSessions = true
                 }
             }
-
+            
             // 2) If server gave us sessions, ensure locals are set up and return
             if serverReturnedSessions {
                 for session in sessionTracking[planId] ?? [] {
@@ -401,13 +410,13 @@ final class SessionTrackingManager: ObservableObject {
                 print("✅ Using server sessions (\(sessionTracking[planId]?.count ?? 0)) for plan \(planId)")
                 return
             }
-
+            
             // 3) Ask the server to initialize sessions from the plan's weekly_schedule
             var initializedOnServer = false
             if networkStatus == .connected {
                 print("⚠️ No server sessions → attempting server initialize …")
                 initializedOnServer = await initializeSessionsOnServer(planId: planId)
-
+                
                 if initializedOnServer {
                     // Re-fetch from server after initialization
                     await refreshSessions(for: planId)
@@ -422,11 +431,11 @@ final class SessionTrackingManager: ObservableObject {
                     }
                 }
             }
-
+            
             // 4) Fallback: generate sessions locally from the UI plan (last resort)
             print("⚠️ Server initialize unavailable → generating locally")
             var allSessions: [SessionTracking] = []
-
+            
             for phase in plan.weeks {
                 if let weekRange = phase.title.extractWeekRange() {
                     for weekNum in weekRange {
@@ -444,15 +453,15 @@ final class SessionTrackingManager: ObservableObject {
                     }
                 }
             }
-
+            
             // Persist local generation
             sessionTracking[planId] = allSessions
             exerciseHistory[planId] = []
             saveSessionTracking()
             saveExerciseHistory()
-
+            
             print("✅ Created \(allSessions.count) local sessions for plan \(planId)")
-
+            
             // 5) If we’re online, push the generated set to the server
             if networkStatus == .connected {
                 await syncSessionsToServer(planId: planId, sessions: allSessions)
@@ -462,7 +471,7 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
+    
     // MARK: - Exercise Tracking
     func generateExerciseKey(planId: String, sessionId: UUID, title: String) -> String {
         // Include milliseconds and hash for true uniqueness per exercise
@@ -478,7 +487,7 @@ final class SessionTrackingManager: ObservableObject {
         
         return "\(planId.lowercased())_\(sessionId.uuidString.lowercased())_\(safeTitle)_\(hash)"
     }
-
+    
     func recordExerciseCompletionWithKey(
         planId: String,
         sessionId: UUID,
@@ -497,7 +506,7 @@ final class SessionTrackingManager: ObservableObject {
         // Create searchable notes with exact exercise title
         let exactTitle = exerciseTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let enhancedNotes: String
-            
+        
         if notes.isEmpty {
             enhancedNotes = "[EXERCISE:\(exactTitle)][KEY:\(exerciseKey)] Completed"
         } else {
@@ -547,7 +556,7 @@ final class SessionTrackingManager: ObservableObject {
         print("🔍 Checking completion for key '\(exerciseKey)': \(found)")
         return found
     }
-
+    
     func markExerciseIncompleteByKey(planId: String, sessionId: UUID, exerciseKey: String) {
         let keyMarker = "[KEY:\(exerciseKey)]"
         
@@ -574,7 +583,7 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
+    
     func isExerciseCompletedByTitle(planId: String, sessionId: UUID, exerciseTitle: String) -> Bool {
         guard let exercises = exerciseHistory[planId] else {
             print("🔍 [CHECK] No exercise history for plan: \(planId)")
@@ -606,7 +615,7 @@ final class SessionTrackingManager: ObservableObject {
             var removedCount = 0
             exercises.removeAll { exercise in
                 let matches = exercise.sessionId == sessionId &&
-                             exercise.notes.contains("[EXERCISE:\(exactTitle)]")
+                exercise.notes.contains("[EXERCISE:\(exactTitle)]")
                 if matches {
                     removedCount += 1
                     print("🗑️ [UNCHECK] Removing exercise record: \(exercise.id)")
@@ -628,31 +637,31 @@ final class SessionTrackingManager: ObservableObject {
             self.objectWillChange.send()
         }
     }
-
+    
     // MARK: - Session Management
     
     func markSessionCompleted(planId: String, sessionId: UUID, completed: Bool, notes: String) {
         print("📝 Marking session \(sessionId) as completed: \(completed)")
         let now = Date()
-
+        
         DispatchQueue.main.async {
             guard var sessions = self.sessionTracking[planId],
                   let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
                 print("❌ Session not found: \(sessionId)")
                 return
             }
-
+            
             sessions[index].isCompleted = completed
             sessions[index].notes = notes
             sessions[index].completionDate = completed ? now : nil
             sessions[index].updatedAt = now
-
+            
             self.sessionTracking[planId] = sessions
             self.saveSessionTracking()
             print("✅ Session updated locally")
             self.objectWillChange.send()
         }
-
+        
         queuePendingSessionUpdate(
             planId: planId,
             sessionId: sessionId,
@@ -661,7 +670,7 @@ final class SessionTrackingManager: ObservableObject {
             completionDate: completed ? now : nil
         )
     }
-
+    
     func updateSessionCompletionDate(planId: String, sessionId: UUID, date: Date) {
         DispatchQueue.main.async {
             guard var sessions = self.sessionTracking[planId],
@@ -669,18 +678,18 @@ final class SessionTrackingManager: ObservableObject {
                 print("❌ Session not found for date update: \(sessionId)")
                 return
             }
-
+            
             // Update local model
             sessions[index].completionDate = date
             sessions[index].updatedAt = Date()
             let isCompleted = sessions[index].isCompleted
             let notes = sessions[index].notes
-
+            
             self.sessionTracking[planId] = sessions
             self.saveSessionTracking()
             self.objectWillChange.send()
             print("✅ Updated session completion date → \(date) for \(sessionId)")
-
+            
             // Queue a session update so the server reflects the new date
             self.queuePendingSessionUpdate(
                 planId: planId,
@@ -691,14 +700,14 @@ final class SessionTrackingManager: ObservableObject {
             )
         }
     }
-
+    
     func updateSessionNotes(planId: String, sessionId: UUID, notes: String) {
         DispatchQueue.main.async {
             guard var sessions = self.sessionTracking[planId],
                   let index = sessions.firstIndex(where: { $0.id == sessionId }) else {
                 return
             }
-
+            
             sessions[index].notes = notes
             sessions[index].updatedAt = Date()
             
@@ -706,7 +715,7 @@ final class SessionTrackingManager: ObservableObject {
             self.saveSessionTracking()
             self.objectWillChange.send()
         }
-
+        
         // Queue the updated session for sync
         if let session = sessionTracking[planId]?.first(where: { $0.id == sessionId }) {
             queuePendingSessionUpdate(
@@ -723,20 +732,20 @@ final class SessionTrackingManager: ObservableObject {
         DispatchQueue.main.async {
             if var exercises = self.exerciseHistory[updatedEntry.planId],
                let index = exercises.firstIndex(where: { $0.id == updatedEntry.id }) {
-
+                
                 let originalEntry = exercises[index]
                 let cleanedNotes = self.cleanNotesForDisplay(updatedEntry.notes)
-
+                
                 let preservedEntry = self.createUpdatedExerciseEntry(
                     original: originalEntry,
                     newDate: updatedEntry.date,
                     newNotes: cleanedNotes
                 )
-
+                
                 // 1) replace in local history
                 exercises[index] = preservedEntry
                 self.exerciseHistory[updatedEntry.planId] = exercises
-
+                
                 // 2) update the parent session’s completionDate so DiaryView moves the dot
                 if var sessions = self.sessionTracking[preservedEntry.planId],
                    let idx = sessions.firstIndex(where: { $0.id == preservedEntry.sessionId }) {
@@ -744,7 +753,7 @@ final class SessionTrackingManager: ObservableObject {
                     sessions[idx].updatedAt = Date()
                     let completedFlag = sessions[idx].isCompleted  // keep existing completion state
                     self.sessionTracking[preservedEntry.planId] = sessions
-
+                    
                     // queue a session update so server stays consistent
                     self.queuePendingSessionUpdate(
                         planId: preservedEntry.planId,
@@ -754,7 +763,7 @@ final class SessionTrackingManager: ObservableObject {
                         completionDate: preservedEntry.date
                     )
                 }
-
+                
                 // 3) persist & notify UI
                 self.saveAllData()
                 self.objectWillChange.send()
@@ -768,10 +777,10 @@ final class SessionTrackingManager: ObservableObject {
                         "newDate": preservedEntry.date
                     ]
                 )
-
+                
                 // 4) queue exercise sync
                 self.queuePendingExerciseUpdate(tracking: preservedEntry)
-
+                
                 print("✅ Exercise entry updated: \(preservedEntry.id)")
                 print("  - Date changed: \(originalEntry.date) → \(preservedEntry.date)")
             } else {
@@ -779,9 +788,9 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
-
-
+    
+    
+    
     func deleteExerciseEntry(_ entry: ExerciseTracking) {
         DispatchQueue.main.async {
             if var exercises = self.exerciseHistory[entry.planId] {
@@ -798,7 +807,7 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
+    
     private func createUpdatedExerciseEntry(
         original: ExerciseTracking,
         newDate: Date,
@@ -851,7 +860,7 @@ final class SessionTrackingManager: ObservableObject {
             }
             return false
         }
-
+        
         let planIdLower = tracking.planId.lowercased()
         let urlString = "\(baseURL)/user/\(email)/plans/\(planIdLower)/exercises"
         guard let url = URL(string: urlString) else {
@@ -864,15 +873,15 @@ final class SessionTrackingManager: ObservableObject {
             }
             return false
         }
-
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST" // backend upserts on POST
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         await addAuthHeader(&request)
-
+        
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
-
+        
         let payload: [String: Any] = [
             "id": tracking.id.uuidString.lowercased(),           // include id so server updates if it exists
             "session_id": tracking.sessionId.uuidString.lowercased(),
@@ -880,14 +889,14 @@ final class SessionTrackingManager: ObservableObject {
             "date": df.string(from: tracking.date),
             "notes": tracking.notes
         ]
-
+        
         print("📤 Exercise sync payload (POST): \(payload)")
-
+        
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (data, response) = try await URLSession.shared.authenticatedData(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-
+            
             if (200...299).contains(status) {
                 await MainActor.run {
                     updateExerciseSyncStatus(trackingId: tracking.id,
@@ -919,7 +928,7 @@ final class SessionTrackingManager: ObservableObject {
             return false
         }
     }
-
+    
     // Return true on success, false on any failure.
     // NOTE: caller decides what to do with failures (e.g., re-queue in processPendingUpdates()).
     private func syncSessionToServer(
@@ -934,7 +943,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Cannot sync session - offline or no user")
             return false
         }
-
+        
         let lowerPlanId = planId.lowercased()
         let lowerSessionId = sessionId.uuidString.lowercased()
         let urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/sessions/\(lowerSessionId)"
@@ -942,21 +951,21 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Invalid session sync URL")
             return false
         }
-
+        
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         await addAuthHeader(&request)
-
+        
         // Use snake_case to match backend
         let payload: [String: Any] = [
             "is_completed": completed,
             "notes": notes,
             "completion_date": completionDate?.toISO8601String() as Any
         ]
-
+        
         print("📤 Session sync payload: \(payload)")
-
+        
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
@@ -973,64 +982,89 @@ final class SessionTrackingManager: ObservableObject {
             return false
         }
     }
-
+    
     private func deleteExerciseFromServer(tracking: ExerciseTracking) async {
         guard let email = await currentEmail(),
               networkStatus == .connected else {
             print("❌ Cannot delete exercise - offline or no user")
-            queueExerciseDeletion(tracking: tracking)    // optional; see note below
+            queueExerciseDeletion(tracking: tracking)
             return
         }
-
+        
         let lowerPlanId = tracking.planId.lowercased()
         let lowerTrackingId = tracking.id.uuidString.lowercased()
         let urlString = "\(baseURL)/user/\(email)/plans/\(lowerPlanId)/exercises/\(lowerTrackingId)"
+        
         guard let url = URL(string: urlString) else {
             print("❌ Invalid exercise delete URL")
             return
         }
-
+        
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         await addAuthHeader(&request)
-
+        
         print("🗑️ Deleting exercise from server: \(lowerTrackingId)")
-
+        print("🗑️ Full URL: \(urlString)")
+        
         do {
-            let (_, response) = try await URLSession.shared.authenticatedData(for: request)
+            let (data, response) = try await URLSession.shared.authenticatedData(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-
+            
             switch status {
             case 200...299:
                 print("✅ Exercise deleted from server: \(tracking.id)")
             case 404:
                 // Treat as already-gone; success for our purposes.
-                print("ℹ️ Exercise not found on server (already deleted). Treating as success: \(tracking.id)")
+                print("ℹ️ Exercise not found on server (already deleted): \(tracking.id)")
             default:
+                // Log the response body for debugging
+                if let body = String(data: data, encoding: .utf8) {
+                    print("❌ Delete response body: \(body)")
+                }
                 print("❌ Exercise deletion failed with status: \(status)")
-                // Optional: re-queue for retry if you want resilience
+                // Re-queue for retry
                 queueExerciseDeletion(tracking: tracking)
             }
         } catch {
             print("❌ Exercise deletion error: \(error)")
-            // Optional: re-queue for retry if offline/transient error
+            // Re-queue for retry if offline/transient error
             queueExerciseDeletion(tracking: tracking)
         }
     }
-        
     // ISSUE 2 FIX: Queue deletions for retry
     private func queueExerciseDeletion(tracking: ExerciseTracking) {
-        // Add to a deletion queue (implement similar to pending updates)
         print("📤 Queued exercise deletion for retry: \(tracking.id)")
+        pendingExerciseDeletions.append(tracking)
+        savePendingExerciseDeletions()
     }
-
+    
+    private func savePendingExerciseDeletions() {
+        do {
+            let data = try jsonEncoder.encode(pendingExerciseDeletions)
+            UserDefaults.standard.set(data, forKey: pendingExerciseDeletionsKey())
+        } catch {
+            print("❌ Error saving pending exercise deletions: \(error)")
+        }
+    }
+    
+    private func loadPendingExerciseDeletions() {
+        guard let data = UserDefaults.standard.data(forKey: pendingExerciseDeletionsKey()) else { return }
+        do {
+            pendingExerciseDeletions = try jsonDecoder.decode([ExerciseTracking].self, from: data)
+            print("✅ Loaded \(pendingExerciseDeletions.count) pending exercise deletions")
+        } catch {
+            print("❌ Error loading pending exercise deletions: \(error)")
+        }
+    }
+    
     private func syncSessionsToServer(planId: String, sessions: [SessionTracking]) async {
         guard let email = await currentEmail(),
               networkStatus == .connected else {
             print("❌ Cannot sync sessions - offline or no user")
             return
         }
-
+        
         // Initialize sessions on server first
         let initUrl = URL(string: "\(baseURL)/user/\(email)/plans/\(planId.lowercased())/sessions/initialize")!
         var initRequest = URLRequest(url: initUrl)
@@ -1038,7 +1072,7 @@ final class SessionTrackingManager: ObservableObject {
         initRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         await addAuthHeader(&initRequest)
         initRequest.httpBody = try? JSONSerialization.data(withJSONObject: [:])
-
+        
         do {
             let (_, response) = try await URLSession.shared.authenticatedData(for: initRequest)
             if let httpResponse = response as? HTTPURLResponse,
@@ -1049,7 +1083,7 @@ final class SessionTrackingManager: ObservableObject {
             print("❌ Failed to initialize sessions on server: \(error)")
         }
     }
-
+    
     // MARK: - Pending Updates Management
     private func queuePendingSessionUpdate(
         planId: String,
@@ -1084,7 +1118,7 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
+    
     private func queuePendingExerciseUpdate(tracking: ExerciseTracking) {
         let pendingUpdate = PendingExerciseUpdate(
             tracking: tracking,
@@ -1102,21 +1136,22 @@ final class SessionTrackingManager: ObservableObject {
             }
         }
     }
-
+    
     private func processPendingUpdates() async {
         guard networkStatus == .connected else { return }
-
+        
         print("🔄 Processing pending updates...")
         print("  - Session updates: \(pendingSessionUpdates.count)")
         print("  - Exercise updates: \(pendingExerciseUpdates.count)")
-
+        print("  - Exercise deletions: \(pendingExerciseDeletions.count)")
+        
         await MainActor.run { self.isSyncing = true }
-
+        
         // --- Sessions ---
-        let sessionSnapshot = pendingSessionUpdates   // snapshot what we plan to send
-        pendingSessionUpdates.removeAll()             // clear so new items can be enqueued concurrently
+        let sessionSnapshot = pendingSessionUpdates
+        pendingSessionUpdates.removeAll()
         savePendingSessionUpdates()
-
+        
         var failedSessions: [PendingSessionUpdate] = []
         for u in sessionSnapshot {
             let ok = await syncSessionToServer(
@@ -1136,17 +1171,16 @@ final class SessionTrackingManager: ObservableObject {
                 }
             }
         }
-
-        // merge failures with any new items that got queued during the run
+        
         let newlyQueuedSessions = pendingSessionUpdates
         pendingSessionUpdates = failedSessions + newlyQueuedSessions
         savePendingSessionUpdates()
-
+        
         // --- Exercises ---
         let exerciseSnapshot = pendingExerciseUpdates
         pendingExerciseUpdates.removeAll()
         savePendingExerciseUpdates()
-
+        
         var failedExercises: [PendingExerciseUpdate] = []
         for u in exerciseSnapshot {
             let ok = await syncExerciseToServer(tracking: u.tracking)
@@ -1160,18 +1194,35 @@ final class SessionTrackingManager: ObservableObject {
                 }
             }
         }
-
+        
         let newlyQueuedExercises = pendingExerciseUpdates
         pendingExerciseUpdates = failedExercises + newlyQueuedExercises
         savePendingExerciseUpdates()
-
+        
+        // --- Process Pending Deletions ---
+        let deletionSnapshot = pendingExerciseDeletions
+        pendingExerciseDeletions.removeAll()
+        savePendingExerciseDeletions()
+        
+        for tracking in deletionSnapshot {
+            await deleteExerciseFromServer(tracking: tracking)
+        }
+        
         await MainActor.run {
             self.isSyncing = false
             self.lastSyncTime = Date()
             self.saveLastSyncTime()
         }
-
+        
         print("✅ Finished processing pending updates")
+    }
+    
+    let deletionSnapshot = pendingExerciseDeletions
+    pendingExerciseDeletions.removeAll()
+    savePendingExerciseDeletions()
+    
+    for tracking in deletionSnapshot {
+        await deleteExerciseFromServer(tracking: tracking)
     }
 
     // MARK: - Helper Methods
@@ -1462,11 +1513,13 @@ final class SessionTrackingManager: ObservableObject {
             self.exerciseHistory.removeAll()
             self.pendingSessionUpdates.removeAll()
             self.pendingExerciseUpdates.removeAll()
+            self.pendingExerciseDeletions.removeAll()  // Add this line
             
             self.saveSessionTracking()
             self.saveExerciseHistory()
             self.savePendingSessionUpdates()
             self.savePendingExerciseUpdates()
+            self.savePendingExerciseDeletions()  // Add this line
             
             UserDefaults.standard.removeObject(forKey: self.lastSyncTimeKey())
             self.lastSyncTime = nil
