@@ -7,15 +7,15 @@
 
 import Foundation
 
-/// Matches responses shaped like:
-/// {
-///   "data": <T>,
-///   "message": "...",
-///   "success": true
-/// }
+/// A generic container that matches the standard response shape returned by
+/// the FastAPI backend. It wraps the actual data plus optional fields.
 struct APIEnvelope<T: Decodable>: Decodable {
+    /// The wrapped payload.
     let data: T
-    // You can add these if you need them later:
-    // let message: String?
-    // let success: Bool?
+
+    /// Optional human‑readable message.
+    let message: String?
+
+    /// Optional success flag.
+    let success: Bool?
 }

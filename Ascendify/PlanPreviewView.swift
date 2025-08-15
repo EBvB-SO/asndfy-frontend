@@ -338,7 +338,7 @@ struct PlanPreviewView: View {
             "sessions_per_week": sessionsPerWeek,
             "previous_analysis": """
     Route Overview: \(previewData.routeOverview)
-
+    
     Training Approach: \(previewData.trainingApproach)
     """
         ]
@@ -369,173 +369,172 @@ struct PlanPreviewView: View {
         
         request.httpBody = jsonData
         
-        URLSession.shared.authenticatedDataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    print("🔴 Network error: \(error)")
-                    self.purchaseError = error.localizedDescription
-                    self.isPurchasing = false
-                    return
-                }
+        // Use async/await with our URLSession.authenticatedData(for:)
+        Task {
+            do {
+                // If addAuthHeader might change token, do it on main actor (safety)
+                var req = request
+                await MainActor.run { req.addAuthHeader() }
+                
+                let (data, response) = try await URLSession.shared.authenticatedData(for: req)
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
-                    print("🔴 Invalid response")
-                    self.purchaseError = "Invalid response"
-                    self.isPurchasing = false
-                    return
-                }
-                
-                print("📥 Response status: \(httpResponse.statusCode)")
-                
-                if let data = data, let responseString = String(data: data, encoding: .utf8) {
-                    print("📥 Response body: \(responseString)")
-                }
-                
-                guard httpResponse.statusCode == 200,
-                      let data = data else {
-                    // handle error
-                    if let errorData = try? JSONDecoder().decode(ServerError.self, from: data!) {
-                        self.purchaseError = errorData.detail
-                    } else {
-                        self.purchaseError = "Server error: \(httpResponse.statusCode)"
+                    await MainActor.run {
+                        self.purchaseError = "Invalid response"
+                        self.isPurchasing = false
                     }
-                    self.isPurchasing = false
                     return
                 }
-
-                do {
-                    let phasePlan = try JSONDecoder().decode(PlanConverter.PhaseBasedPlan.self, from: data)
-                    let finalPlan = PlanConverter.convertToUIModel(
-                        phasePlan: phasePlan,
-                        routeName: self.routeName,
-                        grade: self.grade,
-                        previewRouteOverview: self.previewData.routeOverview,
-                        previewTrainingOverview: self.previewData.trainingApproach
-                    )
+                
+                // Log response for debugging
+                print("📥 Response status: \(httpResponse.statusCode)")
+                if let bodyString = String(data: data, encoding: .utf8) {
+                    print("📥 Response body: \(bodyString)")
+                }
+                
+                guard httpResponse.statusCode == 200 else {
+                    // Try to decode your error shape; if not available, show status code
+                    let serverMsg: String
+                    if let err = try? JSONDecoder().decode(ServerError.self, from: data) {
+                        serverMsg = err.detail
+                    } else if let txt = String(data: data, encoding: .utf8) {
+                        serverMsg = "Server error (\(httpResponse.statusCode)): \(txt)"
+                    } else {
+                        serverMsg = "Server error: \(httpResponse.statusCode)"
+                    }
+                    await MainActor.run {
+                        self.purchaseError = serverMsg
+                        self.isPurchasing = false
+                    }
+                    return
+                }
+                
+                // Decode the plan and finish
+                let phasePlan = try JSONDecoder().decode(PlanConverter.PhaseBasedPlan.self, from: data)
+                let finalPlan = PlanConverter.convertToUIModel(
+                    phasePlan: phasePlan,
+                    routeName: self.routeName,
+                    grade: self.grade,
+                    previewRouteOverview: self.previewData.routeOverview,
+                    previewTrainingOverview: self.previewData.trainingApproach
+                )
+                
+                await MainActor.run {
                     self.onPurchaseComplete(finalPlan)
                     self.isPurchasing = false
-                    dismiss()
-                } catch {
-                    self.purchaseError = "Failed to process plan: \(error.localizedDescription)"
+                    self.dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    self.purchaseError = "Network error: \(error.localizedDescription)"
                     self.isPurchasing = false
                 }
             }
-        }.resume()
+        }
     }
 
     // Add polling method to PlanPreviewView
     private func pollForPlanCompletion(taskId: String) {
-            guard let url = URL(string: "\(baseURL)/training_plans/plan_status/\(taskId)") else {
-                self.purchaseError = "Invalid status URL"
-                self.isPurchasing = false
-                return
-            }
-            
-            var request = URLRequest(url: url)
-            request.addAuthHeader()
-            
-            URLSession.shared.authenticatedDataTask(with: request) { data, response, error in
-                DispatchQueue.main.async {
-                    // Check for network errors
-                    if let error = error {
-                        print("🔴 Network error checking status: \(error)")
-                        self.purchaseError = "Network error: \(error.localizedDescription)"
-                        self.isPurchasing = false
-                        return
-                    }
-                                
-                    // Check HTTP response
-                    guard let httpResponse = response as? HTTPURLResponse else {
+        guard let url = URL(string: "\(baseURL)/training_plans/plan_status/\(taskId)") else {
+            self.purchaseError = "Invalid status URL"
+            self.isPurchasing = false
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.addAuthHeader()
+        
+        Task {
+            do {
+                var req = request
+                await MainActor.run { req.addAuthHeader() }
+                
+                let (data, response) = try await URLSession.shared.authenticatedData(for: req)
+                
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    await MainActor.run {
                         self.purchaseError = "Invalid response"
                         self.isPurchasing = false
-                        return
                     }
-                                
-                    print("📥 Status check response code: \(httpResponse.statusCode)")
-                    
-                    guard let data = data else {
-                        self.purchaseError = "No data in response"
+                    return
+                }
+                
+                print("📥 Status check response code: \(httpResponse.statusCode)")
+                
+                guard httpResponse.statusCode == 200 else {
+                    let serverMsg: String
+                    if let txt = String(data: data, encoding: .utf8) {
+                        serverMsg = "Server error during plan generation: \(txt)"
+                    } else {
+                        serverMsg = "Server error during plan generation. Please try again."
+                    }
+                    await MainActor.run {
+                        self.purchaseError = serverMsg
                         self.isPurchasing = false
-                        return
+                    }
+                    return
+                }
+                
+                // Log the raw response
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("📥 Status response: \(responseString)")
+                }
+                
+                let status = try JSONDecoder().decode(StatusResponse.self, from: data)
+                
+                switch status.status {
+                case "processing":
+                    if let progress = status.progress {
+                        await MainActor.run {
+                            self.currentGenerationStep = min(5, Int(progress / 20.0) + 1)
+                        }
+                    }
+                    // Poll again after 2s
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    self.pollForPlanCompletion(taskId: taskId)
+                    
+                case "complete":
+                    if let plan = status.plan {
+                        let finalPlan = PlanConverter.convertToUIModel(
+                            phasePlan: plan,
+                            routeName: self.routeName,
+                            grade: self.grade,
+                            previewRouteOverview: self.previewData.routeOverview,
+                            previewTrainingOverview: self.previewData.trainingApproach
+                        )
+                        await MainActor.run {
+                            self.onPurchaseComplete(finalPlan)
+                            self.dismiss()
+                            self.isPurchasing = false
+                        }
+                    } else {
+                        await MainActor.run {
+                            self.purchaseError = "No plan data received"
+                            self.isPurchasing = false
+                        }
                     }
                     
-                    // Log the raw response
-                    if let responseString = String(data: data, encoding: .utf8) {
-                        print("📥 Status response: \(responseString)")
-                        
-                        // Check if it's a plain text error response
-                        if httpResponse.statusCode != 200 ||
-                           responseString.contains("Internal Server Error") ||
-                           responseString.contains("<!DOCTYPE html>") ||
-                           !responseString.hasPrefix("{") {
-                            self.purchaseError = "Server error during plan generation. Please try again."
-                            self.isPurchasing = false
-                            return
-                        }
+                case "error":
+                    await MainActor.run {
+                        self.purchaseError = status.message ?? "Generation failed"
+                        self.isPurchasing = false
                     }
                     
-                    do {
-                        let status = try JSONDecoder().decode(StatusResponse.self, from: data)
-                        
-                        switch status.status {
-                        case "processing":
-                            // Update progress
-                            if let progress = status.progress {
-                                self.currentGenerationStep = min(5, Int(progress / 20.0) + 1)
-                            }
-                                    
-                            // Continue polling
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                self.pollForPlanCompletion(taskId: taskId)
-                            }
-                                        
-                        case "complete":
-                            if let plan = status.plan {
-                                let finalPlan = PlanConverter.convertToUIModel(
-                                    phasePlan: plan,
-                                    routeName: self.routeName,
-                                    grade: self.grade,
-                                    previewRouteOverview: self.previewData.routeOverview,
-                                    previewTrainingOverview: self.previewData.trainingApproach
-                                )
-                                
-                                self.onPurchaseComplete(finalPlan)
-                                dismiss()
-                            } else {
-                                self.purchaseError = "No plan data received"
-                            }
-                            self.isPurchasing = false
-                            
-                        case "error":
-                            self.purchaseError = status.message ?? "Generation failed"
-                            self.isPurchasing = false
-                            
-                        default:
-                            self.purchaseError = "Unknown status: \(status.status)"
-                            self.isPurchasing = false
-                        }
-                    } catch {
-                        print("🔴 Decoding error: \(error)")
-                        if let decodingError = error as? DecodingError {
-                            switch decodingError {
-                            case .keyNotFound(let key, let context):
-                                print("🔴 Missing key: \(key.stringValue) in \(context.debugDescription)")
-                            case .typeMismatch(let type, let context):
-                                print("🔴 Type mismatch: expected \(type) in \(context.debugDescription)")
-                            case .valueNotFound(let type, let context):
-                                print("🔴 Value not found: \(type) in \(context.debugDescription)")
-                            case .dataCorrupted(let context):
-                                print("🔴 Data corrupted: \(context.debugDescription)")
-                            @unknown default:
-                                print("🔴 Unknown decoding error")
-                            }
-                        }
-                        self.purchaseError = "Failed to process server response"
+                default:
+                    await MainActor.run {
+                        self.purchaseError = "Unknown status: \(status.status)"
                         self.isPurchasing = false
                     }
                 }
-            }.resume()
+                
+            } catch {
+                await MainActor.run {
+                    self.purchaseError = "Network error: \(error.localizedDescription)"
+                    self.isPurchasing = false
+                }
+            }
         }
+    }
 
     // Add the status response model
     struct StatusResponse: Decodable {

@@ -20,75 +20,29 @@ extension URLRequest {
     }
 }
 
-// MARK: - Add this new extension for consistent authenticated requests
 extension URLSession {
-    /// Performs an authenticated data task with automatic token refresh on 401
-    func authenticatedDataTask(
-        with request: URLRequest,
-        retryOnFailure: Bool = true,
-        completion: @escaping (Data?, URLResponse?, Error?) -> Void
-    ) -> URLSessionDataTask {
-        
-        return self.dataTask(with: request) { data, response, error in
-            // Check for 401 and retry if needed
-            if let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 401,
-               retryOnFailure {
-                
-                UserViewModel.shared.refreshTokenIfNeeded { success in
-                    guard success else {
-                        // Couldn't refresh - return original 401 response
-                        completion(data, response, error)
-                        return
-                    }
-                    
-                    // Retry with refreshed token
-                    var retryRequest = request
-                    retryRequest.addAuthHeader() // Re-add the auth header with new token
-                    
-                    self.authenticatedDataTask(
-                        with: retryRequest,
-                        retryOnFailure: false, // Don't retry again
-                        completion: completion
-                    ).resume()
-                }
-            } else {
-                // Not a 401 or already retried
-                completion(data, response, error)
-            }
-        }
-    }
-    
-    /// Async version with automatic token refresh
+    /// Performs an authenticated request; automatically refreshes token on 401.
     func authenticatedData(for request: URLRequest) async throws -> (Data, URLResponse) {
         // First attempt
         let (data, response) = try await self.data(for: request)
-        
-        // Check for 401
-        if let httpResponse = response as? HTTPURLResponse,
-           httpResponse.statusCode == 401 {
-            
-            // Try to refresh token
-            let refreshed = await withCheckedContinuation { continuation in
-                UserViewModel.shared.refreshTokenIfNeeded { success in
-                    continuation.resume(returning: success)
-                }
-            }
-            
+
+        // If we get a 401, try to refresh the token once
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 {
+            let refreshed = await UserViewModel.shared.refreshTokenIfNeeded()
             guard refreshed else {
-                // Couldn't refresh - force sign out and throw
-                await MainActor.run {
-                    UserViewModel.shared.signOut()
-                }
+                // Token refresh failed – sign out and throw
+                await MainActor.run { UserViewModel.shared.signOut() }
                 throw URLError(.userAuthenticationRequired)
             }
-            
-            // Retry with new token
-            var retryRequest = request
-            retryRequest.addAuthHeader()
-            return try await self.data(for: retryRequest)
+
+            // Build a new request with the refreshed token
+            var newRequest = request
+            await MainActor.run {
+                newRequest.addAuthHeader()
+            }
+            return try await self.data(for: newRequest)
         }
-        
+
         return (data, response)
     }
 }

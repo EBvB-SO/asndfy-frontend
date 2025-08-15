@@ -22,6 +22,21 @@ class GeneratedPlansManager: ObservableObject {
     @Published var isLoading = false
     @Published var error: String? = nil
     
+    // MARK: - MainActor helpers (keep all UI/VM touches on main)
+    @inline(__always)
+    private func currentEmail() async -> String? {
+        await MainActor.run {
+            UserViewModel.shared.userProfile?.email
+        }
+    }
+    
+    @inline(__always)
+    private func addAuthHeader(_ request: inout URLRequest) async {
+        await MainActor.run {
+            request.addAuthHeader()
+        }
+    }
+    
     // Initialize with plans from storage
     init() {
         loadPlans()
@@ -66,12 +81,12 @@ class GeneratedPlansManager: ObservableObject {
             .replacingOccurrences(of: " ", with: "_")
             .lowercased()
     }
-
+    
     private func pruneCachesForCurrentPlans() {
         let ids = Set(plans.map { planIdentifier(for: $0) })
         SessionTrackingManager.shared.pruneOrphanPlanData(currentPlanIds: ids)
     }
-
+    
     
     /// Load plans from UserDefaults
     private func loadPlans() {
@@ -119,8 +134,8 @@ class GeneratedPlansManager: ObservableObject {
             // Check response status
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw NSError(domain: "GeneratedPlansManager",
-                             code: 0,
-                             userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                              code: 0,
+                              userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
             }
             
             switch httpResponse.statusCode {
@@ -161,12 +176,12 @@ class GeneratedPlansManager: ObservableObject {
                 if let errorData = try? JSONDecoder().decode([String: String].self, from: data),
                    let detail = errorData["detail"] {
                     throw NSError(domain: "GeneratedPlansManager",
-                                 code: httpResponse.statusCode,
-                                 userInfo: [NSLocalizedDescriptionKey: detail])
+                                  code: httpResponse.statusCode,
+                                  userInfo: [NSLocalizedDescriptionKey: detail])
                 } else {
                     throw NSError(domain: "GeneratedPlansManager",
-                                 code: httpResponse.statusCode,
-                                 userInfo: [NSLocalizedDescriptionKey: "Server error: \(httpResponse.statusCode)"])
+                                  code: httpResponse.statusCode,
+                                  userInfo: [NSLocalizedDescriptionKey: "Server error: \(httpResponse.statusCode)"])
                 }
             }
             
@@ -197,39 +212,32 @@ class GeneratedPlansManager: ObservableObject {
     
     /// Sync plans with server - can be called manually or on app launch
     func syncPlansWithServer() async {
-        guard let email = UserViewModel.shared.userProfile?.email else {
+        guard let email = await currentEmail() else {
             print("No user email found, skipping plan sync")
             return
         }
-        
         await fetchPlansFromServerAsync(email: email)
     }
     
     /// Delete a plan from the server
     func deletePlanFromServer(planId: String) async throws {
-        guard let email = UserViewModel.shared.userProfile?.email else {
+        guard let email = await currentEmail() else {
             throw NSError(domain: "GeneratedPlansManager",
-                         code: 0,
-                         userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
+                          code: 0,
+                          userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
         }
         
         let url = URL(string: "\(baseURL)/training_plans/\(email)/\(planId)")!
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.addAuthHeader()
+        await addAuthHeader(&request)   // <-- was request.addAuthHeader()
         
         let (_, response) = try await URLSession.shared.authenticatedData(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 200 || http.statusCode == 204 else {
             throw NSError(domain: "GeneratedPlansManager",
-                         code: 0,
-                         userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
-        }
-        
-        if httpResponse.statusCode != 200 && httpResponse.statusCode != 204 {
-            throw NSError(domain: "GeneratedPlansManager",
-                         code: httpResponse.statusCode,
-                         userInfo: [NSLocalizedDescriptionKey: "Failed to delete plan"])
+                          code: (response as? HTTPURLResponse)?.statusCode ?? 0,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to delete plan"])
         }
     }
     
@@ -239,13 +247,13 @@ class GeneratedPlansManager: ObservableObject {
         let route_overview: String?
         let training_overview: String?
         let phases: [Phase]
-
+        
         struct Phase: Encodable {
             let phase_name: String
             let description: String
             let phase_order: Int
             let sessions: [Session]
-
+            
             struct Session: Encodable {
                 let day: String
                 let focus: String
@@ -256,21 +264,19 @@ class GeneratedPlansManager: ObservableObject {
     }
     
     /// Check if user has any plans (either local or needs to fetch)
+    @MainActor
     func checkForPlans() {
         if plans.isEmpty {
-            // Try loading from storage first
             loadPlans()
-            
-            // If still empty and user is logged in, fetch from server
             if plans.isEmpty, let email = UserViewModel.shared.userProfile?.email {
-                fetchPlansFromServer(email: email)
+                fetchPlansFromServer(email: email) // spawns a Task internally
             }
         }
     }
     
     /// Refresh plans from server (pull to refresh)
     func refreshPlans() async {
-        guard let email = UserViewModel.shared.userProfile?.email else { return }
+        guard let email = await currentEmail() else { return }
         await fetchPlansFromServerAsync(email: email)
     }
 }
@@ -312,7 +318,7 @@ extension GeneratedPlansManager {
     func savePlanToServer(routeName: String,
                           grade: String,
                           planModel: PlanModel) async throws {
-        guard let email = UserViewModel.shared.userProfile?.email else {
+        guard let email = await currentEmail() else {
             throw NSError(domain: "GeneratedPlansManager",
                           code: 0,
                           userInfo: [NSLocalizedDescriptionKey: "User not logged in"])
@@ -373,7 +379,7 @@ extension GeneratedPlansManager {
         let url = URL(string: "\(baseURL)/training_plans/\(email)/save")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.addAuthHeader()
+        await addAuthHeader(&request)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(requestBody)
 

@@ -368,7 +368,6 @@ struct GeneratePlanView: View {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.addAuthHeader()
         req.timeoutInterval = 120.0
         
         do {
@@ -380,77 +379,60 @@ struct GeneratePlanView: View {
             return
         }
             
-            print("🔵 Sending request...")
-            URLSession.shared.authenticatedDataTask(with: req) { data, resp, err in
-                DispatchQueue.main.async {
-                    print("🔵 Response received")
-                    
-                    if let err = err {
-                        print("🔴 Network error: \(err)")
-                        if (err as NSError).code == NSURLErrorTimedOut {
-                            self.errorMessage = "Request timed out. The server might be busy - please try again."
-                        } else {
-                            self.errorMessage = err.localizedDescription
-                        }
-                        self.isGenerating = false
-                        return
-                    }
-                    
-                    guard let http = resp as? HTTPURLResponse else {
-                        print("🔴 Invalid response type")
+        print("🔵 Sending request...")
+
+        Task {
+            do {
+                // Add auth on main actor (since addAuthHeader is @MainActor)
+                var request = req
+                await MainActor.run { request.addAuthHeader() }
+
+                let (data, resp) = try await URLSession.shared.authenticatedData(for: request)
+
+                guard let http = resp as? HTTPURLResponse else {
+                    await MainActor.run {
                         self.errorMessage = "Invalid response"
                         self.isGenerating = false
-                        return
                     }
-                    
-                    print("🔵 HTTP Status: \(http.statusCode)")
-                    
-                    guard let data = data else {
-                        print("🔴 No data in response")
-                        self.errorMessage = "No data received"
-                        self.isGenerating = false
-                        return
-                    }
-                    
-                    print("🔵 Response data size: \(data.count) bytes")
-                    
-                    if http.statusCode == 200 {
-                        do {
-                            // The preview endpoint returns the preview directly
-                            let preview = try JSONDecoder().decode(PlanPreviewData.self, from: data)
-                            print("✅ Preview generated successfully")
-                            
-                            // Store the data for the preview sheet
-                            self.previewData = preview
-                            self.inputPayload = payload.mapValues { "\($0)" }
-                            self.showPreview = true
-                            self.isGenerating = false
-                            
-                        } catch {
-                            print("🔴 Decoding error: \(error)")
-                            if let jsonString = String(data: data, encoding: .utf8) {
-                                print("🔴 Raw response: \(jsonString)")
-                            }
-                            self.errorMessage = "Failed to decode preview: \(error.localizedDescription)"
-                            self.isGenerating = false
-                        }
-                    } else {
-                        // Try to extract error message
-                        if let jsonString = String(data: data, encoding: .utf8) {
-                            print("🔴 Error response: \(jsonString)")
-                        }
-                        
-                        if let errorData = try? JSONDecoder().decode(ServerError.self, from: data) {
-                            self.errorMessage = errorData.detail
-                        } else {
-                            self.errorMessage = "Server error: \(http.statusCode)"
-                        }
-                        self.isGenerating = false
-                    }
+                    return
                 }
-            }.resume()
+
+                print("🔵 HTTP Status: \(http.statusCode)")
+
+                guard http.statusCode == 200 else {
+                    let msg: String
+                    if let server = try? JSONDecoder().decode(ServerError.self, from: data) {
+                        msg = server.detail
+                    } else if let txt = String(data: data, encoding: .utf8) {
+                        msg = "Server error (\(http.statusCode)): \(txt)"
+                    } else {
+                        msg = "Server error: \(http.statusCode)"
+                    }
+                    await MainActor.run {
+                        self.errorMessage = msg
+                        self.isGenerating = false
+                    }
+                    return
+                }
+
+                // Decode the preview payload
+                let preview = try JSONDecoder().decode(PlanPreviewData.self, from: data)
+
+                await MainActor.run {
+                    self.previewData  = preview
+                    self.inputPayload = payload.mapValues { "\($0)" }
+                    self.showPreview  = true
+                    self.isGenerating = false
+                }
+
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Network error: \(error.localizedDescription)"
+                    self.isGenerating = false
+                }
+            }
         }
-    
+    }
         
         // MARK: – Step 2: Poll for updates
         private func pollPlanStatus() {
@@ -459,51 +441,74 @@ struct GeneratePlanView: View {
             let url = URL(string: "\(baseURL)/training_plans/plan_status/\(taskID)")!
             var req = URLRequest(url: url)
             req.httpMethod = "GET"
-            req.addAuthHeader()
             
-            URLSession.shared.dataTask(with: req) { data, _, err in
-                DispatchQueue.main.async {
-                    if let err = err {
-                        self.errorMessage = err.localizedDescription
-                        self.isGenerating = false
+            Task {
+                do {
+                    var request = req
+                    await MainActor.run { request.addAuthHeader() }
+
+                    let (data, resp) = try await URLSession.shared.authenticatedData(for: request)
+
+                    guard let http = resp as? HTTPURLResponse else {
+                        await MainActor.run {
+                            self.errorMessage = "Invalid status response"
+                            self.isGenerating = false
+                        }
                         return
                     }
-                    guard
-                        let data = data,
-                        let status = try? JSONDecoder().decode(StatusResponse.self, from: data)
-                    else {
-                        self.errorMessage = "Invalid status response"
-                        self.isGenerating = false
+
+                    guard http.statusCode == 200 else {
+                        let msg = String(data: data, encoding: .utf8) ?? "Server error"
+                        await MainActor.run {
+                            self.errorMessage = msg
+                            self.isGenerating = false
+                        }
                         return
                     }
-                    
+
+                    let status = try JSONDecoder().decode(StatusResponse.self, from: data)
+
                     switch status.status {
                     case "processing":
-                        self.generationProgress = status.progress ?? 0
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                            self.pollPlanStatus()
+                        await MainActor.run {
+                            self.generationProgress = status.progress ?? 0
                         }
-                        
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        self.pollPlanStatus()
+
                     case "complete":
                         if let plan = status.plan {
-                            self.fullPlan = plan
-                            self.showPreview = true    // or however you display the full plan
+                            await MainActor.run {
+                                self.fullPlan = plan
+                                self.showPreview = true
+                                self.isGenerating = false
+                            }
                         } else {
-                            self.errorMessage = "No plan returned"
+                            await MainActor.run {
+                                self.errorMessage = "No plan returned"
+                                self.isGenerating = false
+                            }
                         }
-                        self.isGenerating = false
-                        
+
                     case "error":
-                        self.errorMessage = status.message ?? "Unknown error"
-                        self.isGenerating = false
-                        
+                        await MainActor.run {
+                            self.errorMessage = status.message ?? "Unknown error"
+                            self.isGenerating = false
+                        }
+
                     default:
-                        self.errorMessage = "Unexpected status: \(status.status)"
+                        await MainActor.run {
+                            self.errorMessage = "Unexpected status: \(status.status ?? "unknown")"
+                            self.isGenerating = false
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.errorMessage = "Network error: \(error.localizedDescription)"
                         self.isGenerating = false
                     }
                 }
             }
-            .resume()
         }
         
         // MARK: — Polling helpers —

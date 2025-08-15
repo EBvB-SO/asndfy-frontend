@@ -46,11 +46,12 @@ class ProjectsManager: ObservableObject {
         print("Error: \(errorMessage)")
     }
     
+    @MainActor
     func debugTokenInfo() {
         guard let url = URL(string: "\(baseURL)/projects/debug/token-info") else { return }
         var request = URLRequest(url: url)
-        request.addAuthHeader()
-        
+        request.addAuthHeader()   // now OK (we're on main actor)
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let data = data {
@@ -73,12 +74,13 @@ class ProjectsManager: ObservableObject {
             }
         }.resume()
     }
-    
+
+    @MainActor
     func debugAuthTest() {
         guard let url = URL(string: "\(baseURL)/projects/debug/auth-test") else { return }
         var request = URLRequest(url: url)
-        request.addAuthHeader()
-        
+        request.addAuthHeader()   // now OK
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 if let data = data {
@@ -101,8 +103,6 @@ class ProjectsManager: ObservableObject {
             }
         }.resume()
     }
-
-
 
     // MARK: - API Functions
 

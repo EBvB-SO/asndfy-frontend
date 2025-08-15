@@ -119,6 +119,21 @@ final class SessionTrackingManager: ObservableObject {
         guard let email = currentUserEmail else { return "last_sync_time" }
         return "last_sync_time_\(email)"
     }
+    
+    // MARK: - MainActor helpers
+    @inline(__always)
+    private func currentEmail() async -> String? {
+        await MainActor.run {
+            UserViewModel.shared.userProfile?.email
+        }
+    }
+
+    @inline(__always)
+    private func addAuthHeader(_ request: inout URLRequest) async {
+        await MainActor.run {
+            request.addAuthHeader()
+        }
+    }
 
     // Configuration
     private let baseURL = "http://127.0.0.1:8001"
@@ -784,8 +799,8 @@ final class SessionTrackingManager: ObservableObject {
     
     // MARK: - Server Synchronization (SIMPLIFIED)
     private func syncExerciseToServer(tracking: ExerciseTracking) async {
-        guard let email = UserViewModel.shared.userProfile?.email,
-                networkStatus == .connected else {
+        guard let email = await currentEmail(),
+              networkStatus == .connected else {
             print("❌ Cannot sync exercise - offline or no user")
             updateExerciseSyncStatus(trackingId: tracking.id, planId: tracking.planId, isSynced: false, error: "Offline")
             return
@@ -819,7 +834,7 @@ final class SessionTrackingManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = httpMethod
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addAuthHeader()
+        await addAuthHeader(&request)
 
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
@@ -872,8 +887,8 @@ final class SessionTrackingManager: ObservableObject {
         notes: String,
         completionDate: Date?
     ) async {
-        guard let email = UserViewModel.shared.userProfile?.email,
-                networkStatus == .connected else {
+        guard let email = await currentEmail(),
+              networkStatus == .connected else {
             print("❌ Cannot sync session - offline or no user")
             return
         }
@@ -890,7 +905,7 @@ final class SessionTrackingManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addAuthHeader()
+        await addAuthHeader(&request)
 
         // CRITICAL FIX: Use snake_case field names
         let payload: [String: Any] = [
@@ -917,10 +932,9 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     private func deleteExerciseFromServer(tracking: ExerciseTracking) async {
-        guard let email = UserViewModel.shared.userProfile?.email,
-                networkStatus == .connected else {
+        guard let email = await currentEmail(),
+              networkStatus == .connected else {
             print("❌ Cannot delete exercise - offline or no user")
-            // Queue for deletion when online
             queueExerciseDeletion(tracking: tracking)
             return
         }
@@ -936,7 +950,7 @@ final class SessionTrackingManager: ObservableObject {
 
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
-        request.addAuthHeader()
+        await addAuthHeader(&request)
             
         print("🗑️ Deleting exercise from server: \(lowerTrackingId)")
 
@@ -968,7 +982,7 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     private func syncSessionsToServer(planId: String, sessions: [SessionTracking]) async {
-        guard let email = UserViewModel.shared.userProfile?.email,
+        guard let email = await currentEmail(),
               networkStatus == .connected else {
             print("❌ Cannot sync sessions - offline or no user")
             return
@@ -979,7 +993,7 @@ final class SessionTrackingManager: ObservableObject {
         var initRequest = URLRequest(url: initUrl)
         initRequest.httpMethod = "POST"
         initRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        initRequest.addAuthHeader()
+        await addAuthHeader(&initRequest)
         initRequest.httpBody = try? JSONSerialization.data(withJSONObject: [:])
 
         do {
@@ -1275,8 +1289,8 @@ final class SessionTrackingManager: ObservableObject {
     }
 
     func refreshSessions(for planId: String) async {
-        guard let email = UserViewModel.shared.userProfile?.email,
-                networkStatus == .connected else {
+        guard let email = await currentEmail(),
+              networkStatus == .connected else {
             return
         }
 
@@ -1286,7 +1300,7 @@ final class SessionTrackingManager: ObservableObject {
 
         do {
             var request = URLRequest(url: url)
-            request.addAuthHeader()
+            await addAuthHeader(&request)
 
             let (data, _) = try await URLSession.shared.authenticatedData(for: request)
                 
@@ -1393,7 +1407,7 @@ final class SessionTrackingManager: ObservableObject {
 
     // MARK: - Debug Methods
     func testServerConnectivity() async -> (success: Bool, message: String) {
-        guard let email = UserViewModel.shared.userProfile?.email else {
+        guard let email = await currentEmail() else {
             return (false, "User not logged in")
         }
         
@@ -1405,7 +1419,7 @@ final class SessionTrackingManager: ObservableObject {
         
         do {
             var request = URLRequest(url: url)
-            request.addAuthHeader()
+            await addAuthHeader(&request)
             
             let (_, response) = try await URLSession.shared.authenticatedData(for: request)
             

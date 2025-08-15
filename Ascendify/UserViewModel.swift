@@ -975,14 +975,13 @@ extension UserViewModel {
 
     /// Proactively refresh the token only if it’s expired (or about to)
     func refreshTokenIfNeeded() async -> Bool {
-        // Don’t call the network unless the token is really expired
-        guard isTokenExpired() else { return true }
-        return await withCheckedContinuation { continuation in
-            // This calls your existing non-async `refreshTokenIfNeeded(completion:)`
-            refreshTokenIfNeeded { success in
-                continuation.resume(returning: success)
+            // Don’t call the network unless the token is really expired
+            guard isTokenExpired() else { return true }
+            return await withCheckedContinuation { cont in
+                refreshTokenIfNeeded { success in
+                    cont.resume(returning: success)
+                }
             }
-        }
     }
 }
 
