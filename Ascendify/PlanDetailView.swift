@@ -12,6 +12,25 @@ struct PlanDetailView: View {
     let plan: PlanModel
     let routeName: String
     let grade: String
+    let planId: String
+    
+    init(plan: PlanModel,
+             routeName: String? = nil,
+             grade: String? = nil,
+             planId: String? = nil) {
+            self.plan = plan
+            // Keep existing logic for routeName/grade defaults
+            self.routeName = routeName ?? Self.extractRouteName(from: plan.routeOverview)
+            self.grade = grade ?? ""
+            // Use server planId if provided; otherwise build the slug as before
+            if let id = planId {
+                self.planId = id.lowercased()
+            } else {
+                self.planId = "\(self.routeName)_\(self.grade)"
+                    .replacingOccurrences(of: " ", with: "_")
+                    .lowercased()
+            }
+        }
 
     @Environment(\.dismiss) private var dismiss
     @State private var selectedExercise: PlanExercise?
@@ -23,26 +42,11 @@ struct PlanDetailView: View {
     @State private var showingFullPlanInfo = false
     @State private var showExpandedView = false
     @ObservedObject private var trackingManager = SessionTrackingManager.shared
-
-    // unique plan identifier used by SessionTrackingManager
-    private var planId: String {
-        "\(routeName)_\(grade)"
-            .replacingOccurrences(of: " ", with: "_")
-            .lowercased()
-    }
     
     // Define progress stats
     private var progressStats: (completed: Int, total: Int, percentage: Double) {
         trackingManager.getCompletionStats(planId: planId)
       }
-
-    // MARK: Init & Helpers
-    init(plan: PlanModel, routeName: String? = nil, grade: String? = nil) {
-        self.plan = plan
-        self.routeName = routeName
-            ?? Self.extractRouteName(from: plan.routeOverview)
-        self.grade = grade ?? ""
-    }
 
     private static func extractRouteName(from overview: String) -> String {
         guard
@@ -262,6 +266,7 @@ struct PlanDetailView: View {
 
             ForEach(plan.weeks.indices, id: \.self) { i in
                 WeekView(
+                    planId: self.planId,
                     weekIndex: i,
                     week: plan.weeks[i],
                     expandedWeeks: $expandedWeeks,
@@ -279,6 +284,7 @@ struct PlanDetailView: View {
 
 // MARK: - Week View
 struct WeekView: View {
+    let planId: String
     let weekIndex: Int
     let week: PlanWeek
 

@@ -331,21 +331,24 @@ struct PlanRowView: View {
 struct PlanDetailViewWrapper: View {
     let planWrapper: PlanWrapper
     @Binding var isPresented: Bool
-    
+
     var body: some View {
         ZStack {
-            Color(.systemBackground)
-                .ignoresSafeArea()
-            
+            Color(.systemBackground).ignoresSafeArea()
             VStack(spacing: 0) {
-                DetailHeaderView {
-                    isPresented = false
-                }
-                
+                DetailHeaderView { isPresented = false }
+
+                // ✅ get the right planId to pass down
+                let pid = planWrapper.serverId?.lowercased()
+                    ?? "\(planWrapper.routeName)_\(planWrapper.grade)"
+                        .replacingOccurrences(of: " ", with: "_")
+                        .lowercased()
+
                 PlanDetailView(
                     plan: planWrapper.plan,
                     routeName: planWrapper.routeName,
-                    grade: planWrapper.grade
+                    grade: planWrapper.grade,
+                    planId: pid
                 )
             }
         }
