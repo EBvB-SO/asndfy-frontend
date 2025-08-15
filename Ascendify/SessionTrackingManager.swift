@@ -1147,7 +1147,7 @@ final class SessionTrackingManager: ObservableObject {
         
         await MainActor.run { self.isSyncing = true }
         
-        // --- Sessions ---
+        // --- Process Session Updates ---
         let sessionSnapshot = pendingSessionUpdates
         pendingSessionUpdates.removeAll()
         savePendingSessionUpdates()
@@ -1176,7 +1176,7 @@ final class SessionTrackingManager: ObservableObject {
         pendingSessionUpdates = failedSessions + newlyQueuedSessions
         savePendingSessionUpdates()
         
-        // --- Exercises ---
+        // --- Process Exercise Updates ---
         let exerciseSnapshot = pendingExerciseUpdates
         pendingExerciseUpdates.removeAll()
         savePendingExerciseUpdates()
@@ -1199,7 +1199,7 @@ final class SessionTrackingManager: ObservableObject {
         pendingExerciseUpdates = failedExercises + newlyQueuedExercises
         savePendingExerciseUpdates()
         
-        // --- Process Pending Deletions ---
+        // --- Process Pending Exercise Deletions ---
         let deletionSnapshot = pendingExerciseDeletions
         pendingExerciseDeletions.removeAll()
         savePendingExerciseDeletions()
@@ -1215,14 +1215,6 @@ final class SessionTrackingManager: ObservableObject {
         }
         
         print("✅ Finished processing pending updates")
-    }
-    
-    let deletionSnapshot = pendingExerciseDeletions
-    pendingExerciseDeletions.removeAll()
-    savePendingExerciseDeletions()
-    
-    for tracking in deletionSnapshot {
-        await deleteExerciseFromServer(tracking: tracking)
     }
 
     // MARK: - Helper Methods
