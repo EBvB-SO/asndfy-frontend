@@ -46,6 +46,7 @@ struct TestDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showRunner = false
     @State private var showLog = false
+    @State private var selectedResult: TestResult?
     @EnvironmentObject var userViewModel: UserViewModel
     @ObservedObject private var testsVM = TestsViewModel.shared
 
@@ -190,13 +191,18 @@ struct TestDetailView: View {
                             .foregroundStyle(.secondary)
                         } else {
                             ForEach(results) { r in
-                                HStack {
-                                    Text(r.dateString).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("\(r.value, specifier: "%.1f") \(test.unit ?? "")")
-                                        .fontWeight(.semibold)
+                                Button {
+                                    selectedResult = r   // <- set the item to edit
+                                } label: {
+                                    HStack {
+                                        Text(r.dateString).foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text("\(r.value, specifier: "%.1f") \(test.unit ?? "")")
+                                            .fontWeight(.semibold)
+                                    }
+                                    .padding(.vertical, 4)
                                 }
-                                .padding(.vertical, 4)
+                                .buttonStyle(.plain)
 
                                 if r.id != results.last?.id { Divider() }
                             }
@@ -226,6 +232,8 @@ struct TestDetailView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .bottom) { bottomActionBar }
+
+            // 1) Start Test runner sheet (unchanged)
             .sheet(isPresented: $showRunner) {
                 TestRunnerView(
                     kind: content.kind,
@@ -237,11 +245,21 @@ struct TestDetailView: View {
                 )
                 .presentationDetents([.medium, .large])
             }
+
+            // 2) Log Result sheet (unchanged, just make sure the braces close here)
             .sheet(isPresented: $showLog) {
                 LogResultSheet(test: test, onSaved: { refresh() })
+                    .environmentObject(userViewModel)   // keep this if LogResultSheet expects it
+                    .presentationDetents([.medium, .large])
+            }
+
+            // 3) Edit Result sheet — this must be a separate, sibling sheet
+            .sheet(item: $selectedResult) { result in
+                EditTestResultView(test: test, result: result, onSaved: { refresh() })
                     .environmentObject(userViewModel)
                     .presentationDetents([.medium, .large])
             }
+
             .refreshable { refresh() }   // pull to refresh
             .onAppear { refresh() }      // load on open
         }

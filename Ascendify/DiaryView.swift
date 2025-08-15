@@ -522,9 +522,9 @@ struct DiaryView: View {
                 await diaryManager.syncDailyNotes()
             }
         }
-        .navigationBarHidden(true)
         .sheet(isPresented: $showingDayDetail) {
             DayDetailView(date: selectedDate)
+                .environmentObject(userViewModel)
         }
         // If you still want to add notes directly from this screen, keep this sheet too:
         .sheet(isPresented: $showingAddNote) {
@@ -733,33 +733,28 @@ struct DayDetailView: View {
     }
     
     var body: some View {
+        let entries = diaryManager.getEntriesForDate(date)
+
         VStack(spacing: 0) {
-            // Custom header with gradient
             headerSection
-            
             ScrollView {
                 VStack(spacing: 16) {
-                    // Summary card at top
-                    summaryCard
-                    
-                    // Entry cards
-                    ForEach(Array(diaryManager.getEntriesForDate(date).enumerated()), id: \.offset) { _, entry in
+                    // Pass the cached entries down
+                    summaryCard(entries)
+
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
                         entryCard(for: entry)
                     }
-                    
-                    if diaryManager.getEntriesForDate(date).isEmpty {
-                        emptyStateView
-                    }
+
+                    if entries.isEmpty { emptyStateView }
                 }
                 .padding()
             }
             .background(Color(.systemGray6))
         }
         .navigationBarHidden(true)
-        .sheet(isPresented: $showingAddNote, onDismiss: {}) {
-            AddNoteView(date: date) {
-                diaryManager.objectWillChange.send()
-            }
+        .sheet(isPresented: $showingAddNote) {
+            AddNoteView(date: date) { diaryManager.objectWillChange.send() }
         }
         .sheet(isPresented: $showingSessionNotes) {
             if let session = selectedTrainingSession, let plan = selectedPlanId {
@@ -767,6 +762,9 @@ struct DayDetailView: View {
             } else {
                 Text("No session selected")
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .init("TestDataUpdated"))) { _ in
+            diaryManager.objectWillChange.send()
         }
     }
     
@@ -814,27 +812,26 @@ struct DayDetailView: View {
         }
         .frame(height: 80)
     }
-    
-    private var summaryCard: some View {
-        let entries = diaryManager.getEntriesForDate(date)
+
+    private func summaryCard(_ entries: [DiaryEntryType]) -> some View {
         let entryCount = entries.count
-        
+
         return HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Day Summary")
                     .font(.headline)
                     .fontWeight(.bold)
                     .foregroundColor(.deepPurple)
-                
+
                 Text("\(entryCount) \(entryCount == 1 ? "entry" : "entries") recorded")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
-            
+
             Spacer()
-            
+
             HStack(spacing: 12) {
-                if entries.contains(where: { if case .training = $0 { return true }; return false }) {
+                if entries.contains(where: { if case .training   = $0 { return true } else { return false } }) {
                     VStack(spacing: 2) {
                         Image(systemName: "figure.climbing")
                             .font(.system(size: 16))
@@ -844,8 +841,8 @@ struct DayDetailView: View {
                             .foregroundColor(.blue)
                     }
                 }
-                
-                if entries.contains(where: { if case .projectLog = $0 { return true }; return false }) {
+
+                if entries.contains(where: { if case .projectLog = $0 { return true } else { return false } }) {
                     VStack(spacing: 2) {
                         Image(systemName: "flag.fill")
                             .font(.system(size: 16))
@@ -855,8 +852,8 @@ struct DayDetailView: View {
                             .foregroundColor(.green)
                     }
                 }
-                
-                if entries.contains(where: { if case .dailyNote = $0 { return true }; return false }) {
+
+                if entries.contains(where: { if case .dailyNote  = $0 { return true } else { return false } }) {
                     VStack(spacing: 2) {
                         Image(systemName: "note.text")
                             .font(.system(size: 16))
@@ -866,8 +863,8 @@ struct DayDetailView: View {
                             .foregroundColor(.purple)
                     }
                 }
-                
-                if entries.contains(where: { if case .test = $0 { return true }; return false }) {
+
+                if entries.contains(where: { if case .test       = $0 { return true } else { return false } }) {
                     VStack(spacing: 2) {
                         Image(systemName: "testtube.2")
                             .font(.system(size: 16))
@@ -1261,9 +1258,13 @@ struct DailyNoteCard: View {
 }
 
 // MARK: - Test Entry Card
+// MARK: - Test Entry Card
 struct TestEntryCard: View {
     let result: TestResult
     let definition: TestDefinition
+
+    @EnvironmentObject var userViewModel: UserViewModel
+    @State private var showingEdit = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1282,14 +1283,24 @@ struct TestEntryCard: View {
                             .font(.headline)
                             .fontWeight(.bold)
                             .foregroundColor(.orange)
-                        // show value and unit
                         Text("\(result.value, specifier: "%.1f") \(definition.unit ?? "")")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
                 }
+
                 Spacer()
+
+                Button(action: { showingEdit = true }) {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 16))
+                        .foregroundColor(.tealBlue)
+                        .padding(8)
+                        .background(Circle().fill(Color.tealBlue.opacity(0.1)))
+                }
+                .accessibilityLabel("Edit test result")
             }
+
             if let notes = result.notes, !notes.isEmpty {
                 Text(notes)
                     .font(.body)
@@ -1302,6 +1313,18 @@ struct TestEntryCard: View {
                 .fill(Color.white)
                 .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
         )
+        .sheet(isPresented: $showingEdit) {
+            EditTestResultView(
+                test: definition,
+                result: result,
+                onSaved: {
+                    // Make DiaryView refresh its entries
+                    NotificationCenter.default.post(name: Notification.Name("TestDataUpdated"), object: nil)
+                }
+            )
+            .environmentObject(userViewModel)
+            .presentationDetents([.medium, .large])
+        }
     }
 }
 

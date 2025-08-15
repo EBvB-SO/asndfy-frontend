@@ -201,6 +201,67 @@ final class TestsViewModel: ObservableObject {
         }
     }
 
+    func updateResult(
+        for test: TestDefinition,
+        userEmail: String,
+        token: String,
+        result: TestResult,
+        newValue: Double?,
+        newDate: Date?,
+        newNotes: String?
+    ) async throws {
+        let encodedEmail = userEmail.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userEmail
+        guard let url = URL(string: "\(baseURL)/tests/users/\(encodedEmail)/\(test.id)/results/\(result.id)") else {
+            throw TestsNetworkError.badURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        // Encode date as "yyyy-MM-dd" if provided
+        var payload: [String: Any] = [:]
+        if let v = newValue { payload["value"] = v }
+        if let d = newDate {
+            let df = DateFormatter()
+            df.calendar = Calendar(identifier: .iso8601)
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.timeZone = TimeZone(secondsFromGMT: 0)
+            df.dateFormat = "yyyy-MM-dd"
+            payload["date"] = df.string(from: d)
+        }
+        if let n = newNotes { payload["notes"] = n }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+        let (_, response) = try await session.data(for: request)
+        try Self.assertOK(response)
+
+        // Refresh results after a successful update
+        try await refreshResults(for: test, userEmail: userEmail, token: token)
+    }
+
+    func deleteResult(
+        for test: TestDefinition,
+        userEmail: String,
+        token: String,
+        resultId: Int
+    ) async throws {
+        let encodedEmail = userEmail.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? userEmail
+        guard let url = URL(string: "\(baseURL)/tests/users/\(encodedEmail)/\(test.id)/results/\(resultId)") else {
+            throw TestsNetworkError.badURL
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (_, response) = try await session.data(for: request)
+        try Self.assertOK(response)
+        // Refresh results after deletion
+        try await refreshResults(for: test, userEmail: userEmail, token: token)
+    }
+    
     // MARK: Helpers
 
     /// Convenience to reload results and surface any error in `errorMessage`.
