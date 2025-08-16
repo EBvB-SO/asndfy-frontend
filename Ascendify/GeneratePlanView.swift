@@ -256,7 +256,6 @@ struct GeneratePlanView: View {
             .navigationBarHidden(true)
             .sheet(isPresented: $showPreview) {
                 if let preview = previewData, let payload = inputPayload {
-                    // Show a preview with PlanPreviewView
                     PlanPreviewView(
                         routeName: routeName,
                         grade: routeGrade,
@@ -265,16 +264,22 @@ struct GeneratePlanView: View {
                         onPurchaseComplete: { plan in
                             Task {
                                 do {
-                                    try await GeneratedPlansManager.shared.savePlanToServer(
+                                    // 1. Save to the backend and get the UUID
+                                    let planId = try await GeneratedPlansManager.shared.savePlanToServer(
                                         routeName: self.routeName,
                                         grade: self.routeGrade,
                                         planModel: plan
                                     )
+                                    // 2. Save locally with serverId
                                     GeneratedPlansManager.shared.savePlan(
                                         routeName: self.routeName,
                                         grade: self.routeGrade,
-                                        plan: plan
+                                        plan: plan,
+                                        serverId: planId
                                     )
+                                    // 3. Initialise sessions on the server so exercise tracking works
+                                    SessionTrackingManager.shared.initializeTrackingForPlan(planId: planId, plan: plan)
+                                    // 4. Dismiss UI
                                     dismiss()
                                 } catch {
                                     self.errorMessage = error.localizedDescription
@@ -287,7 +292,7 @@ struct GeneratePlanView: View {
             }
         }
     }
-    
+
     // Validation check
     private var isFormValid: Bool {
         !routeName.isEmpty &&
