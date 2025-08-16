@@ -107,15 +107,16 @@ struct PlanDetailView: View {
                 }
             }
         }
-        .onAppear {
-            Task {
-                await SessionTrackingManager.shared
-                    .initializeTrackingForPlan(planId: planId, plan: plan)
-            }
+        .task {
+            await SessionTrackingManager.shared.initializeTrackingForPlan(
+                planId: planId,
+                plan: plan
+            )
         }
         .onDisappear {
             SessionTrackingManager.shared.saveAllData()
         }
+
     }
 
     // MARK: - Phase ‑Based View
@@ -775,14 +776,10 @@ struct ExpandedPlanDetailView: View {
             .padding(.bottom, 20)
         }
         .navigationBarHidden(true)
-        .onAppear {
-            Task {
-                await trackingManager
-                    .initializeTrackingForPlan(planId: planId, plan: plan)
-            }
+        .task {
+            await trackingManager.initializeTrackingForPlan(planId: planId, plan: plan)
         }
         .onDisappear {
-            // flush out any session changes before we leave this screen
             SessionTrackingManager.shared.saveAllData()
         }
         .sheet(isPresented: $showSessionDetail, onDismiss: {
