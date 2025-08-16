@@ -108,7 +108,10 @@ struct PlanDetailView: View {
             }
         }
         .onAppear {
-            SessionTrackingManager.shared.initializeTrackingForPlan(planId: planId, plan: plan)
+            Task {
+                await SessionTrackingManager.shared
+                    .initializeTrackingForPlan(planId: planId, plan: plan)
+            }
         }
         .onDisappear {
             SessionTrackingManager.shared.saveAllData()
@@ -773,7 +776,10 @@ struct ExpandedPlanDetailView: View {
         }
         .navigationBarHidden(true)
         .onAppear {
-            trackingManager.initializeTrackingForPlan(planId: planId, plan: plan)
+            Task {
+                await trackingManager
+                    .initializeTrackingForPlan(planId: planId, plan: plan)
+            }
         }
         .onDisappear {
             // flush out any session changes before we leave this screen

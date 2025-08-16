@@ -264,22 +264,22 @@ struct GeneratePlanView: View {
                         onPurchaseComplete: { plan in
                             Task {
                                 do {
-                                    // 1. Save to the backend and get the UUID
                                     let planId = try await GeneratedPlansManager.shared.savePlanToServer(
                                         routeName: self.routeName,
                                         grade: self.routeGrade,
                                         planModel: plan
                                     )
-                                    // 2. Save locally with serverId
                                     GeneratedPlansManager.shared.savePlan(
                                         routeName: self.routeName,
                                         grade: self.routeGrade,
                                         plan: plan,
                                         serverId: planId
                                     )
-                                    // 3. Initialise sessions on the server so exercise tracking works
-                                    SessionTrackingManager.shared.initializeTrackingForPlan(planId: planId, plan: plan)
-                                    // 4. Dismiss UI
+                                    // 🔁 Wait for sessions to be initialised
+                                    await SessionTrackingManager.shared.initializeTrackingForPlan(
+                                        planId: planId,
+                                        plan: plan
+                                    )
                                     dismiss()
                                 } catch {
                                     self.errorMessage = error.localizedDescription
